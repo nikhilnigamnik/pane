@@ -1,0 +1,61 @@
+/*
+ * Cursor design tokens.
+ * Values are copied from the dark theme in the stylesheet behind cursor.com (its
+ * --color-theme-* and --theme-* variables), and the names follow Cursor's. pane is dark only.
+ * Cursor writes translucent colors as color-mix() over the foreground; here they are the
+ * equivalent 8-digit hex, because the Monaco theme can only read plain colors.
+ */
+:root {
+  color-scheme: dark;
+
+  --cursor-bg: #14120b;
+  --cursor-fg: #edecec;
+  /* A solid color (the hover state of filled buttons), not a transparency step. */
+  --cursor-fg-02: #d7d6d5;
+
+  --cursor-card: #1b1913;
+  --cursor-card-01: #1d1b15;
+  --cursor-card-02: #201e18;
+  --cursor-card-03: #26241e;
+  --cursor-card-04: #2b2923;
+
+  /* The two surfaces of Cursor's product UI. */
+  --cursor-product-chrome: var(--cursor-bg);
+  --cursor-product-editor: var(--cursor-card);
+
+  /* The foreground at 5 to 20 percent, for fills. */
+  --cursor-fg-05: #edecec0d;
+  --cursor-fg-08: #edecec14;
+  --cursor-fg-10: #edecec1a;
+  --cursor-fg-15: #edecec26;
+  --cursor-fg-20: #edecec33;
+
+  --cursor-text: var(--cursor-fg);
+  --cursor-text-sec: #edecec99;
+  --cursor-text-mid: #edecec80;
+  --cursor-text-tertiary: #edecec66;
+
+  --cursor-border-01: #edecec06;
+  --cursor-border-01-5: #edecec0d;
+  --cursor-border-02: #edecec1a;
+  --cursor-border-02-5: #edecec33;
+  --cursor-border-03: #edecec99;
+
+  --cursor-accent: #f54e00;
+  --cursor-accent-bg: #f54e001a;
+  --cursor-accent-bg-strong: #f54e0040;
+
+  /* Cursor's --color-theme-product-ansi-green and -red. */
+  --cursor-success: #1f8a65;
+  --cursor-error: #cf2d56;
+
+  /* Cursor's --theme-<hue>-primary colors. */
+  --cursor-orange: #ed4c00;
+  --cursor-blue: #2268ff;
+  --cursor-lavender: #8c89e7;
+  --cursor-amber: #a88d02;
+
+  --cursor-focus-ring: 0 0 0 2px var(--cursor-bg), 0 0 0 4px var(--cursor-fg);
+  --cursor-shadow-outline: 0 0 0 1px var(--cursor-border-02);
+  --cursor-shadow-flyout: 0 0 1rem #00000005, 0 0 0.5rem #00000002;
+}

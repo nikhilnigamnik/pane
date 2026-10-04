@@ -1,0 +1,107 @@
+@import "tailwindcss";
+@import "./cursor-tokens.css";
+
+@theme inline {
+  /* Replace Tailwind's palette with Cursor's theme colors so only design-system colors exist. */
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  --color-theme-bg: var(--cursor-bg);
+  --color-theme-fg: var(--cursor-fg);
+  --color-theme-fg-02: var(--cursor-fg-02);
+
+  --color-theme-card: var(--cursor-card);
+  --color-theme-card-01: var(--cursor-card-01);
+  --color-theme-card-02: var(--cursor-card-02);
+  --color-theme-card-03: var(--cursor-card-03);
+  --color-theme-card-04: var(--cursor-card-04);
+
+  --color-theme-product-chrome: var(--cursor-product-chrome);
+  --color-theme-product-editor: var(--cursor-product-editor);
+
+  --color-theme-fg-05: var(--cursor-fg-05);
+  --color-theme-fg-08: var(--cursor-fg-08);
+  --color-theme-fg-10: var(--cursor-fg-10);
+  --color-theme-fg-15: var(--cursor-fg-15);
+  --color-theme-fg-20: var(--cursor-fg-20);
+
+  --color-theme-text: var(--cursor-text);
+  --color-theme-text-sec: var(--cursor-text-sec);
+  --color-theme-text-mid: var(--cursor-text-mid);
+  --color-theme-text-tertiary: var(--cursor-text-tertiary);
+
+  --color-theme-border-01: var(--cursor-border-01);
+  --color-theme-border-01-5: var(--cursor-border-01-5);
+  --color-theme-border-02: var(--cursor-border-02);
+  --color-theme-border-02-5: var(--cursor-border-02-5);
+  --color-theme-border-03: var(--cursor-border-03);
+
+  --color-theme-accent: var(--cursor-accent);
+  --color-theme-success: var(--cursor-success);
+  --color-theme-error: var(--cursor-error);
+
+  /* Cursor sets its product UI in the system font and code in Berkeley Mono. Berkeley Mono is
+     a paid font, so it is only used when it is installed on this machine. */
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+
+  /* Cursor's type scale: the product sizes for dense UI, the site sizes for everything else. */
+  --text-*: initial;
+  --text-product-sm: 0.6875rem;
+  --text-product-sm--line-height: 1.27273;
+  --text-product-sm--letter-spacing: 0.0044em;
+  --text-product-base: 0.75rem;
+  --text-product-base--line-height: 1.33333;
+  --text-product-lg: 0.8125rem;
+  --text-product-lg--line-height: 1.33333;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.5;
+  --text-sm--letter-spacing: 0.01em;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5;
+  --text-base--letter-spacing: 0.005em;
+  --text-md-sm: 1.125rem;
+  --text-md-sm--line-height: 1.4;
+  --text-md: 1.375rem;
+  --text-md--line-height: 1.3;
+  --text-md--letter-spacing: -0.005em;
+  --text-md-lg: 1.625rem;
+  --text-md-lg--line-height: 1.25;
+  --text-md-lg--letter-spacing: -0.0125em;
+
+  --shadow-*: initial;
+  --shadow-focus-ring: var(--cursor-focus-ring);
+  --shadow-outline-theme: var(--cursor-shadow-outline);
+  --shadow-flyout: var(--cursor-shadow-flyout);
+
+  --radius-*: initial;
+  --radius-xs: 4px;
+  --radius-md: 8px;
+  --radius-xl: 0.75rem;
+  --radius-full: 9999px;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--cursor-bg);
+    color: var(--cursor-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+
+  ::selection {
+    background-color: var(--cursor-fg-15);
+  }
+}
