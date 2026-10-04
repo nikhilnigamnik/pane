@@ -1,22 +1,30 @@
 import { ChevronRight, File, Folder, FolderOpen } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import type { FocusEvent, KeyboardEvent } from 'react';
 
 import { COPY } from '@/config/copy';
+import {
+  TREE_DELETE_KEYS,
+  TREE_DELETE_KEY_WITH_COMMAND,
+  TREE_RENAME_KEY,
+} from '@/config/shortcuts';
 import { ICON_SIZE, ICON_STROKE_WIDTH } from '@/config/ui';
 import type { TreeEntry } from '@/types/api';
 import type { FileTreeState } from '@/web/hooks/use-file-tree';
 import { cn } from '@/web/lib/cn';
 import { ROOT_PATH } from '@/web/lib/path';
+import { hasCommandKey } from '@/web/lib/shortcuts';
 import { treeKeyAction, visibleRows } from '@/web/lib/tree-rows';
 
 interface FileTreeProps {
   tree: FileTreeState;
   activePath: string | null;
   onOpenFile: (path: string) => void;
+  onRenameEntry: (entry: TreeEntry) => void;
+  onDeleteEntry: (entry: TreeEntry) => void;
 }
 
-interface TreeLevelProps extends FileTreeProps {
+interface TreeLevelProps extends Omit<FileTreeProps, 'onRenameEntry' | 'onDeleteEntry'> {
   entries: TreeEntry[];
   // The single row that the Tab key lands on. The arrow keys move between rows from there.
   tabStopPath: string | null;
@@ -52,7 +60,11 @@ function TreeNode({ entry, tree, activePath, tabStopPath, onOpenFile }: TreeNode
           title={entry.path}
           data-path={entry.path}
           tabIndex={tabIndex}
-          onClick={() => onOpenFile(entry.path)}
+          onClick={() => {
+            // Safari does not focus a button that is clicked, so the row is recorded here too.
+            tree.setFocusedPath(entry.path);
+            onOpenFile(entry.path);
+          }}
           className={cn(ROW_CLASSES, isActive && 'bg-theme-fg-10 hover:bg-theme-fg-10')}
         >
           <span className="size-4 shrink-0" aria-hidden />
@@ -74,7 +86,10 @@ function TreeNode({ entry, tree, activePath, tabStopPath, onOpenFile }: TreeNode
         title={entry.path}
         data-path={entry.path}
         tabIndex={tabIndex}
-        onClick={() => tree.toggleDirectory(entry.path)}
+        onClick={() => {
+          tree.setFocusedPath(entry.path);
+          tree.toggleDirectory(entry.path);
+        }}
         className={ROW_CLASSES}
       >
         <ChevronRight
@@ -120,9 +135,14 @@ function TreeLevel({ entries, tree, activePath, tabStopPath, onOpenFile }: TreeL
   );
 }
 
-export function FileTree({ tree, activePath, onOpenFile }: FileTreeProps) {
+export function FileTree({
+  tree,
+  activePath,
+  onOpenFile,
+  onRenameEntry,
+  onDeleteEntry,
+}: FileTreeProps) {
   const treeRef = useRef<HTMLDivElement>(null);
-  const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const rows = useMemo(
     () => visibleRows(tree.childrenByPath, tree.expandedPaths),
     [tree.childrenByPath, tree.expandedPaths],
@@ -140,12 +160,30 @@ export function FileTree({ tree, activePath, onOpenFile }: FileTreeProps) {
   // that is no longer on screen (its folder closed) cannot hold that place.
   const isOnScreen = (path: string | null) => rows.some((row) => row.entry.path === path);
   const tabStopPath =
-    [focusedPath, activePath].find(isOnScreen) ?? rows[0]?.entry.path ?? null;
+    [tree.focusedPath, activePath].find(isOnScreen) ?? rows[0]?.entry.path ?? null;
+
+  function handleEntryKey(event: KeyboardEvent<HTMLDivElement>, path: string): boolean {
+    const entry = rows.find((row) => row.entry.path === path)?.entry;
+    if (!entry || event.altKey || event.shiftKey) return false;
+
+    const hasModifier = event.ctrlKey || event.metaKey;
+    const isRename = event.key === TREE_RENAME_KEY && !hasModifier;
+    const isDelete =
+      (TREE_DELETE_KEYS.includes(event.key) && !hasModifier) ||
+      (event.key === TREE_DELETE_KEY_WITH_COMMAND && hasCommandKey(event));
+    if (isRename) onRenameEntry(entry);
+    else if (isDelete) onDeleteEntry(entry);
+    return isRename || isDelete;
+  }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
     const path = rowPath(event.target);
     if (path === undefined) return;
+    if (handleEntryKey(event, path)) {
+      event.preventDefault();
+      return;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
 
     const action = treeKeyAction(rows, tree.expandedPaths, path, event.key);
     if (!action) return;
@@ -163,7 +201,7 @@ export function FileTree({ tree, activePath, onOpenFile }: FileTreeProps) {
 
   function handleFocus(event: FocusEvent<HTMLDivElement>) {
     const path = rowPath(event.target);
-    if (path !== undefined) setFocusedPath(path);
+    if (path !== undefined) tree.setFocusedPath(path);
   }
 
   return (

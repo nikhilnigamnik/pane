@@ -1,4 +1,6 @@
-import { FileSearch, RefreshCw, Search } from 'lucide-react';
+import { FilePlus, FileSearch, FolderPlus, RefreshCw, Search } from 'lucide-react';
+import { useState } from 'react';
+import type { MouseEvent } from 'react';
 
 import { COPY } from '@/config/copy';
 import { SHORTCUTS } from '@/config/shortcuts';
@@ -9,22 +11,28 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from '@/config/ui';
-import type { WorkspaceMeta } from '@/types/api';
+import type { TreeEntry, WorkspaceMeta } from '@/types/api';
 import type { TextSelection } from '@/types/editor';
 import type { SidebarView } from '@/types/ui';
-import { useFileTree } from '@/web/hooks/use-file-tree';
+import type { FileActionsState } from '@/web/hooks/use-file-actions';
+import type { FileTreeState } from '@/web/hooks/use-file-tree';
 import { useProjectSearch } from '@/web/hooks/use-project-search';
 import { useSidebarWidth } from '@/web/hooks/use-sidebar-width';
 import { cn } from '@/web/lib/cn';
 import { shortcutLabel } from '@/web/lib/shortcuts';
+import { findEntry } from '@/web/lib/tree-rows';
 
 import { FileTree } from './file-tree';
+import { FileTreeMenu } from './file-tree-menu';
 import { SearchPanel } from './search-panel';
 import { Button } from './ui/button';
+import { ContextMenu } from './ui/context-menu';
 import { ScrollArea } from './ui/scroll-area';
 
 interface SidebarProps {
   meta: WorkspaceMeta | null;
+  tree: FileTreeState;
+  fileActions: FileActionsState;
   activePath: string | null;
   view: SidebarView;
   // Changes every time search is asked for, which puts the cursor back in its box.
@@ -32,25 +40,56 @@ interface SidebarProps {
   onViewChange: (view: SidebarView) => void;
   onQuickOpen: () => void;
   onOpenFile: (path: string, selection?: TextSelection) => void;
+  onOpenToSide: (path: string) => void;
+}
+
+interface HeaderButtonProps {
+  label: string;
+  icon: typeof Search;
+  isPressed?: boolean;
+  onClick: () => void;
 }
 
 const QUICK_OPEN_TITLE = COPY.WITH_SHORTCUT(COPY.QUICK_OPEN, shortcutLabel(SHORTCUTS.QUICK_OPEN));
 const SEARCH_TITLE = COPY.WITH_SHORTCUT(COPY.SEARCH, shortcutLabel(SHORTCUTS.SEARCH));
 
+function HeaderButton({ label, icon: Icon, isPressed, onClick }: HeaderButtonProps) {
+  return (
+    <Button
+      variant="tertiary"
+      size="tiny"
+      isSquare
+      isPressed={isPressed}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+    >
+      <Icon size={ICON_SIZE_SMALL} strokeWidth={ICON_STROKE_WIDTH} aria-hidden />
+    </Button>
+  );
+}
+
+function rowPathAt(event: MouseEvent): string | null {
+  const row = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-path]') : null;
+  return row?.dataset.path ?? null;
+}
+
 export function Sidebar({
   meta,
+  tree,
+  fileActions,
   activePath,
   view,
   searchFocusToken,
   onViewChange,
   onQuickOpen,
   onOpenFile,
+  onOpenToSide,
 }: SidebarProps) {
-  // Both live here, not in the views, so the open folders and the last search survive
-  // switching between them.
-  const tree = useFileTree();
+  // Lives here, not in the search view, so the last search survives switching views.
   const search = useProjectSearch();
   const { sidebarRef, width, isResizing, handleProps } = useSidebarWidth();
+  const [menuEntry, setMenuEntry] = useState<TreeEntry | null>(null);
   const isSearching = view === 'search';
 
   return (
@@ -63,6 +102,20 @@ export function Sidebar({
           {meta?.name ?? APP_NAME}
         </span>
         <div className="flex shrink-0 items-center gap-0.5">
+          {!isSearching && (
+            <>
+              <HeaderButton
+                label={COPY.NEW_FILE}
+                icon={FilePlus}
+                onClick={() => fileActions.requestCreate('file')}
+              />
+              <HeaderButton
+                label={COPY.NEW_FOLDER}
+                icon={FolderPlus}
+                onClick={() => fileActions.requestCreate('directory')}
+              />
+            </>
+          )}
           <Button
             variant="tertiary"
             size="tiny"
@@ -85,16 +138,7 @@ export function Sidebar({
             <Search size={ICON_SIZE_SMALL} strokeWidth={ICON_STROKE_WIDTH} aria-hidden />
           </Button>
           {!isSearching && (
-            <Button
-              variant="tertiary"
-              size="tiny"
-              isSquare
-              aria-label={COPY.REFRESH_TREE}
-              title={COPY.REFRESH_TREE}
-              onClick={() => void tree.refresh()}
-            >
-              <RefreshCw size={ICON_SIZE_SMALL} strokeWidth={ICON_STROKE_WIDTH} aria-hidden />
-            </Button>
+            <HeaderButton label={COPY.REFRESH_TREE} icon={RefreshCw} onClick={() => void tree.refresh()} />
           )}
         </div>
       </header>
@@ -102,11 +146,36 @@ export function Sidebar({
       {isSearching ? (
         <SearchPanel search={search} focusToken={searchFocusToken} onOpenFile={onOpenFile} />
       ) : (
-        <ScrollArea className="min-h-0 flex-1">
-          <nav className="p-1.5">
-            <FileTree tree={tree} activePath={activePath} onOpenFile={onOpenFile} />
-          </nav>
-        </ScrollArea>
+        <ContextMenu
+          content={
+            <FileTreeMenu
+              entry={menuEntry}
+              onCreate={fileActions.requestCreate}
+              onRename={fileActions.requestRename}
+              onDelete={fileActions.requestDelete}
+              onOpenToSide={onOpenToSide}
+            />
+          }
+        >
+          {/* The whole area takes right-clicks, so the space below the rows offers "new file". */}
+          <ScrollArea
+            className="min-h-0 flex-1"
+            onContextMenu={(event) => {
+              const path = rowPathAt(event);
+              setMenuEntry(path === null ? null : findEntry(tree.childrenByPath, path));
+            }}
+          >
+            <nav className="p-1.5">
+              <FileTree
+                tree={tree}
+                activePath={activePath}
+                onOpenFile={onOpenFile}
+                onRenameEntry={fileActions.requestRename}
+                onDeleteEntry={fileActions.requestDelete}
+              />
+            </nav>
+          </ScrollArea>
+        </ContextMenu>
       )}
 
       <footer className="flex h-8 shrink-0 items-center border-t border-theme-border-02 px-3">

@@ -1,4 +1,5 @@
-import { CaseSensitive, File, Search } from 'lucide-react';
+import { CaseSensitive, Ellipsis, File, Regex, Search, WholeWord } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import { COPY } from '@/config/copy';
@@ -33,15 +34,68 @@ interface MatchPreviewProps {
   match: SearchMatch;
 }
 
+interface OptionToggleProps {
+  label: string;
+  icon: LucideIcon;
+  isPressed: boolean;
+  onToggle: () => void;
+}
+
+interface FilterInputProps {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+}
+
+const FIELD_CLASSES =
+  'flex h-7 items-center gap-1.5 rounded-md bg-theme-fg-05 pl-2 pr-0.5 focus-within:shadow-focus-ring';
+const INPUT_CLASSES =
+  'min-w-0 flex-1 bg-transparent text-product-lg text-theme-text outline-none placeholder:text-theme-text-tertiary';
+
 const ROW_CLASSES =
   'flex w-full cursor-pointer items-center rounded-xs text-left outline-none transition-colors hover:bg-theme-fg-05 focus-visible:shadow-focus-ring';
 
 function statusMessage(search: ProjectSearchState): string {
   if (search.error) return search.error;
+  if (search.isQueryTooShort && search.options.isRegex) return COPY.SEARCH_EMPTY_PATTERN;
   if (search.isQueryTooShort) return COPY.SEARCH_TOO_SHORT(SEARCH_MIN_QUERY_LENGTH);
   if (search.isSearching || !search.results) return COPY.SEARCHING;
   if (search.results.matchCount === 0) return COPY.SEARCH_NO_RESULTS;
   return COPY.SEARCH_SUMMARY(search.results.matchCount, search.results.files.length);
+}
+
+function OptionToggle({ label, icon: Icon, isPressed, onToggle }: OptionToggleProps) {
+  return (
+    <Button
+      variant="tertiary"
+      size="tiny"
+      isSquare
+      isPressed={isPressed}
+      aria-label={label}
+      title={label}
+      onClick={onToggle}
+    >
+      <Icon size={ICON_SIZE} strokeWidth={ICON_STROKE_WIDTH} aria-hidden />
+    </Button>
+  );
+}
+
+function FilterInput({ label, placeholder, value, onChange }: FilterInputProps) {
+  return (
+    <div className={cn(FIELD_CLASSES, 'pr-2')}>
+      <input
+        type="text"
+        aria-label={label}
+        autoComplete="off"
+        spellCheck={false}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={INPUT_CLASSES}
+      />
+    </div>
+  );
 }
 
 function MatchPreview({ match }: MatchPreviewProps) {
@@ -102,6 +156,8 @@ function FileResult({ file, onOpenFile }: FileResultProps) {
 
 export function SearchPanel({ search, focusToken, onOpenFile }: SearchPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const { options } = search;
+  const hasFilters = options.include.trim() !== '' || options.exclude.trim() !== '';
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -111,39 +167,71 @@ export function SearchPanel({ search, focusToken, onOpenFile }: SearchPanelProps
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-col gap-1.5 border-b border-theme-border-02 p-2">
-        <div className="flex h-7 items-center gap-1.5 rounded-md bg-theme-fg-05 pl-2 pr-0.5 focus-within:shadow-focus-ring">
-          <Search
-            size={ICON_SIZE_SMALL}
-            strokeWidth={ICON_STROKE_WIDTH}
-            className="shrink-0 text-theme-text-sec"
-            aria-hidden
+        <div className="flex items-center gap-0.5">
+          <div className={cn(FIELD_CLASSES, 'min-w-0 flex-1')}>
+            <Search
+              size={ICON_SIZE_SMALL}
+              strokeWidth={ICON_STROKE_WIDTH}
+              className="shrink-0 text-theme-text-sec"
+              aria-hidden
+            />
+            <input
+              ref={inputRef}
+              type="text"
+              aria-label={COPY.SEARCH}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={COPY.SEARCH}
+              value={options.query}
+              onChange={(event) => search.setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) search.searchAgain();
+              }}
+              className={INPUT_CLASSES}
+            />
+            <OptionToggle
+              label={COPY.SEARCH_MATCH_CASE}
+              icon={CaseSensitive}
+              isPressed={options.isCaseSensitive}
+              onToggle={() => search.toggleFlag('isCaseSensitive')}
+            />
+            <OptionToggle
+              label={COPY.SEARCH_WHOLE_WORD}
+              icon={WholeWord}
+              isPressed={options.isWholeWord}
+              onToggle={() => search.toggleFlag('isWholeWord')}
+            />
+            <OptionToggle
+              label={COPY.SEARCH_REGEX}
+              icon={Regex}
+              isPressed={options.isRegex}
+              onToggle={() => search.toggleFlag('isRegex')}
+            />
+          </div>
+          {/* Lit while hidden filters still narrow the search, so results are never a mystery. */}
+          <OptionToggle
+            label={COPY.SEARCH_FILTERS}
+            icon={Ellipsis}
+            isPressed={search.areFiltersVisible || hasFilters}
+            onToggle={search.toggleFilters}
           />
-          <input
-            ref={inputRef}
-            type="text"
-            aria-label={COPY.SEARCH}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder={COPY.SEARCH}
-            value={search.query}
-            onChange={(event) => search.setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) search.searchAgain();
-            }}
-            className="min-w-0 flex-1 bg-transparent text-product-lg text-theme-text outline-none placeholder:text-theme-text-tertiary"
-          />
-          <Button
-            variant="tertiary"
-            size="tiny"
-            isSquare
-            isPressed={search.isCaseSensitive}
-            aria-label={COPY.SEARCH_MATCH_CASE}
-            title={COPY.SEARCH_MATCH_CASE}
-            onClick={search.toggleCaseSensitive}
-          >
-            <CaseSensitive size={ICON_SIZE} strokeWidth={ICON_STROKE_WIDTH} aria-hidden />
-          </Button>
         </div>
+        {search.areFiltersVisible && (
+          <>
+            <FilterInput
+              label={COPY.SEARCH_INCLUDE}
+              placeholder={COPY.SEARCH_INCLUDE_PLACEHOLDER}
+              value={options.include}
+              onChange={(value) => search.setFilter('include', value)}
+            />
+            <FilterInput
+              label={COPY.SEARCH_EXCLUDE}
+              placeholder={COPY.SEARCH_EXCLUDE_PLACEHOLDER}
+              value={options.exclude}
+              onChange={(value) => search.setFilter('exclude', value)}
+            />
+          </>
+        )}
         <p
           role="status"
           className={cn(

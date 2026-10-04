@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { fileExtension, fileName, parentPath, resolveRelativePath } from './path';
+import {
+  fileExtension,
+  fileName,
+  isSameOrInside,
+  joinPath,
+  parentPath,
+  remapPath,
+  resolveRelativePath,
+} from './path';
 
 describe('path parts', () => {
   it('splits a path into folder and name', () => {
@@ -48,5 +56,25 @@ describe('resolveRelativePath', () => {
     expect(resolveRelativePath('docs/guide.md', '../../secret.txt')).toBeNull();
     expect(resolveRelativePath('docs/guide.md', '/../secret.txt')).toBeNull();
     expect(resolveRelativePath('docs/guide.md', '%2E%2E/%2E%2E/secret.txt')).toBeNull();
+  });
+});
+
+describe('renames', () => {
+  it('joins a name onto a folder, the root included', () => {
+    expect(joinPath('', 'a.ts')).toBe('a.ts');
+    expect(joinPath('src', 'a.ts')).toBe('src/a.ts');
+  });
+
+  it('tells the contents of a folder from a sibling that shares its prefix', () => {
+    expect(isSameOrInside('src', 'src')).toBe(true);
+    expect(isSameOrInside('src/a.ts', 'src')).toBe(true);
+    expect(isSameOrInside('src-old/a.ts', 'src')).toBe(false);
+  });
+
+  it('moves a path, and anything inside it, to the new name', () => {
+    expect(remapPath('src', 'src', 'lib')).toBe('lib');
+    expect(remapPath('src/deep/a.ts', 'src', 'lib/source')).toBe('lib/source/deep/a.ts');
+    expect(remapPath('src-old/a.ts', 'src', 'lib')).toBeNull();
+    expect(remapPath('readme.md', 'src', 'lib')).toBeNull();
   });
 });

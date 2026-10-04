@@ -4,29 +4,58 @@ import {
   SEARCH_PREVIEW_LEAD,
   SEARCH_PREVIEW_MAX_LENGTH,
 } from '@/config/server';
-import type { Result, SearchFileResult, SearchMatch, SearchResults } from '@/types/api';
+import type {
+  SearchOptions as BaseSearchOptions,
+  Result,
+  SearchFileResult,
+  SearchMatch,
+  SearchResults,
+} from '@/types/api';
 
-import { ok } from './result';
+import { createPathFilter } from './path-filter';
+import { fail, ok } from './result';
 import { listFiles, readFile } from './workspace';
 import type { Workspace } from './workspace';
 
-export interface SearchOptions {
-  query: string;
-  isCaseSensitive: boolean;
+// The include and exclude patterns are explained in server/path-filter.ts.
+export interface SearchOptions extends BaseSearchOptions {
   // Fires when the caller no longer wants the answer, so the remaining files are skipped.
   signal?: AbortSignal;
 }
 
-// Characters that mean something in a regular expression. The query is plain text, so each
-// one is escaped before the pattern is built.
+interface MatchOptions {
+  isWholeWord: boolean;
+  limit: number;
+}
+
+// Characters that mean something in a regular expression. Plain-text queries have each one
+// escaped before the pattern is built.
 const REGEX_SPECIAL_CHARACTERS = /[.*+?^${}()|[\]\\]/g;
+// Letters and digits in any script, plus the underscore: what counts as part of a word.
+const WORD_CHARACTER = /[\p{L}\p{N}_]/u;
 const BYTE_ORDER_MARK = '﻿';
 const LINE_FEED = '\n';
 const TRAILING_CARRIAGE_RETURN = /\r$/;
 
-function toPattern(query: string, isCaseSensitive: boolean): RegExp {
-  const escaped = query.replace(REGEX_SPECIAL_CHARACTERS, '\\$&');
-  return new RegExp(escaped, isCaseSensitive ? 'g' : 'gi');
+// Returns null when a regular expression does not compile.
+export function toPattern(
+  query: string,
+  { isRegex, isCaseSensitive }: Pick<SearchOptions, 'isRegex' | 'isCaseSensitive'>,
+): RegExp | null {
+  const source = isRegex ? query : query.replace(REGEX_SPECIAL_CHARACTERS, '\\$&');
+  try {
+    return new RegExp(source, isCaseSensitive ? 'g' : 'gi');
+  } catch {
+    return null;
+  }
+}
+
+function isWordCharacter(character: string | undefined): boolean {
+  return character !== undefined && WORD_CHARACTER.test(character);
+}
+
+function isWholeWordAt(text: string, start: number, end: number): boolean {
+  return !isWordCharacter(text[start - 1]) && !isWordCharacter(text[end]);
 }
 
 function toMatch(line: string, lineNumber: number, index: number, length: number): SearchMatch {
@@ -49,7 +78,11 @@ function toMatch(line: string, lineNumber: number, index: number, length: number
   };
 }
 
-export function findMatches(content: string, pattern: RegExp, limit: number): SearchMatch[] {
+export function findMatches(
+  content: string,
+  pattern: RegExp,
+  { isWholeWord, limit }: MatchOptions,
+): SearchMatch[] {
   // The editor does not count a byte order mark as a character, so columns must not either.
   const text = content.startsWith(BYTE_ORDER_MARK) ? content.slice(1) : content;
   const matches: SearchMatch[] = [];
@@ -58,6 +91,9 @@ export function findMatches(content: string, pattern: RegExp, limit: number): Se
 
   for (const found of text.matchAll(pattern)) {
     if (matches.length >= limit) break;
+    // A pattern such as "^" or "a*" can match nothing at all. There is nothing to show for it.
+    if (found[0].length === 0) continue;
+    if (isWholeWord && !isWholeWordAt(text, found.index, found.index + found[0].length)) continue;
 
     // Matches arrive in order, so the line counter only ever moves forward.
     let lineEnd = text.indexOf(LINE_FEED, lineStart);
@@ -70,7 +106,10 @@ export function findMatches(content: string, pattern: RegExp, limit: number): Se
     const line = text
       .slice(lineStart, lineEnd === -1 ? text.length : lineEnd)
       .replace(TRAILING_CARRIAGE_RETURN, '');
-    matches.push(toMatch(line, lineNumber, found.index - lineStart, found[0].length));
+    const index = found.index - lineStart;
+    // A regular expression can match across lines. Only the part on the first line is marked.
+    const length = Math.min(found[0].length, line.length - index);
+    if (length > 0) matches.push(toMatch(line, lineNumber, index, length));
   }
 
   return matches;
@@ -80,33 +119,38 @@ async function searchFile(
   workspace: Workspace,
   path: string,
   pattern: RegExp,
+  isWholeWord: boolean,
 ): Promise<SearchMatch[]> {
   // readFile refuses binary, oversized and non-UTF-8 files; those simply have no matches.
   const file = await readFile(workspace, path);
-  return file.success ? findMatches(file.data.content, pattern, MAX_SEARCH_MATCHES) : [];
+  if (!file.success) return [];
+  return findMatches(file.data.content, pattern, { isWholeWord, limit: MAX_SEARCH_MATCHES });
 }
 
-// Looks for plain text in every indexed file. Files are read through the same guarded
-// readFile the editor uses, so search can never see more than the editor can open.
+// Looks for text in every indexed file. Files are read through the same guarded readFile the
+// editor uses, so search can never see more than the editor can open.
 export async function searchWorkspace(
   workspace: Workspace,
-  { query, isCaseSensitive, signal }: SearchOptions,
+  options: SearchOptions,
 ): Promise<Result<SearchResults>> {
+  const pattern = toPattern(options.query, options);
+  if (!pattern) return fail('invalid_pattern');
+
   const index = await listFiles(workspace);
   if (!index.success) return index;
 
-  const { paths } = index.data;
-  const pattern = toPattern(query, isCaseSensitive);
+  const isIncluded = createPathFilter(options.include, options.exclude);
+  const paths = index.data.paths.filter(isIncluded);
   const files: SearchFileResult[] = [];
   let matchCount = 0;
   let hasReachedLimit = false;
 
   for (let start = 0; start < paths.length && !hasReachedLimit; start += SEARCH_CONCURRENCY) {
-    if (signal?.aborted) break;
+    if (options.signal?.aborted) break;
 
     const batch = paths.slice(start, start + SEARCH_CONCURRENCY);
     const batchMatches = await Promise.all(
-      batch.map((path) => searchFile(workspace, path, pattern)),
+      batch.map((path) => searchFile(workspace, path, pattern, options.isWholeWord)),
     );
 
     for (const [position, fileMatches] of batchMatches.entries()) {

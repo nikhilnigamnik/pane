@@ -30,7 +30,8 @@ server/              Node side (Hono)
   cli.ts             argument parsing, port fallback, opens the browser
   app.ts             routes and request guards
   workspace.ts       every disk read and write, with the path checks
-  search.ts          text search over the files that workspace.ts lists and reads
+  search.ts          text and regex search over the files that workspace.ts lists and reads
+  path-filter.ts     include/exclude glob patterns for search
   watcher.ts         watches the opened folder and batches changed paths
   paths.ts           isInside / relative path helpers
   schema.ts          zod schemas for query strings and bodies
@@ -38,13 +39,18 @@ server/              Node side (Hono)
   result.ts          ok() / fail() helpers for Result<T>
 web/                 browser side (React)
   app.tsx            page composition and global shortcuts
-  components/        feature components (file-tree, tab-bar, code-editor, quick-open,
-                     search-panel, markdown-preview, image-preview, ...)
-  components/ui/     Cursor-style primitives (button, note, kbd, dialog, scroll area)
-  hooks/             use-editor-tabs, use-file-tree, use-project-search,
-                     use-global-shortcuts, use-model-text, use-sidebar-width, use-latest
+  components/        feature components (file-tree, file-tree-menu, tab-bar, editor-pane,
+                     code-editor, side-pane-header, quick-open, command-palette,
+                     search-panel, file-action-dialogs, markdown-preview,
+                     image-preview, table-preview, json-preview, ...)
+  components/ui/     Cursor-style primitives (button, note, kbd, picker, confirm and
+                     prompt dialogs, context menu, scroll area)
+  hooks/             use-editor-tabs, use-file-tree, use-file-actions, use-side-view,
+                     use-project-search, use-global-shortcuts, use-model-text,
+                     use-sidebar-width, use-latest
   lib/               api client, workspace events, Monaco setup, models, editor theme,
-                     and pure helpers with tests (fuzzy, path, tree-rows, preview)
+                     and pure helpers with tests (fuzzy, path, tree-rows, entry-name,
+                     markdown-headings, command-list, delimited, json-tree, preview)
   styles/            cursor-tokens.css (tokens) and index.css (Tailwind theme)
 config/              every constant, label, route and message
 types/               types shared by server and web
@@ -54,9 +60,10 @@ types/               types shared by server and web
 
 ## How it fits together
 
-- The server exposes eight routes under `/api`: `GET meta`, `GET tree?path=`,
-  `GET file?path=`, `PUT file`, `GET events`, `GET files`, `GET search?query=`
-  and `GET raw?path=`. Paths are relative to the opened folder.
+- The server exposes eleven routes under `/api`: `GET meta`, `GET tree?path=`,
+  `GET file?path=`, `PUT file`, `GET events`, `GET files`, `GET search?query=`,
+  `GET raw?path=`, and `POST create`, `POST rename` and `POST delete`. Paths are
+  relative to the opened folder.
 - Every route answers with `Result<T>` from `types/api.ts`
   (`{ success, data }` or `{ success, error: { code, message } }`), also on
   error statuses. Server functions return results instead of throwing.
@@ -73,14 +80,45 @@ types/               types shared by server and web
   untouched tabs reload silently, and tabs with unsaved edits show the conflict
   banner. After a reconnect everything on screen is re-checked.
 - The refresh button closes every open folder and reloads the top level.
+- The command palette (Cmd+Shift+P) lists every action with its shortcut.
+  The list is built by `buildCommands` in `web/lib/command-list.ts` from the
+  same `CommandActions` the global shortcuts call, and leaves out commands
+  that cannot run right now. A new action belongs in both places. Quick open
+  and the palette share `ui/picker.tsx`, which closes its dialog before running
+  the choice so a dialog the choice opens keeps the keyboard.
 - Quick open (Cmd+P) fetches `GET files`, the flat list of every file, each
   time it opens and ranks it in the browser with `web/lib/fuzzy.ts` (the fzy
   scoring). Open tabs are listed first while nothing is typed.
-- Search (Cmd+Shift+F) swaps the sidebar to a search view. `GET search` looks
-  for plain text, not patterns, reads files through the same `readFile` the
-  editor uses, and stops at 1000 matches. The browser waits 250 ms after the
-  last key and cancels the request it replaces. Clicking a match opens the file
-  with the match selected (`RevealRequest` in `types/editor.ts`).
+- Search (Cmd+Shift+F) swaps the sidebar to a search view. `GET search` takes
+  plain text or a JavaScript regular expression, can match whole words only,
+  and can be limited with comma-separated include and exclude globs
+  (`server/path-filter.ts`: a pattern without a slash matches any file or
+  folder name, one with a slash matches the path). It reads files through the
+  same `readFile` the editor uses and stops at 1000 matches. A match that runs
+  over several lines is marked on its first line only. The browser waits
+  250 ms after the last change and cancels the request it replaces. Clicking a
+  match opens the file with the match selected (`RevealRequest` in
+  `types/editor.ts`).
+- Go to line (Ctrl+G on every platform) and go to symbol (Cmd+Shift+O) open
+  Monaco's own pickers through `ActionRequest`, on the view used last. Symbols
+  come from Monaco's language workers; Markdown headings come from
+  `web/lib/markdown-headings.ts`, registered in `web/lib/monaco-setup.ts`.
+- Files and folders are created, renamed and deleted from the tree: the
+  header buttons, a right-click menu (`file-tree-menu.tsx`), F2 to rename and
+  Delete or Cmd+Backspace to delete. Names are entered in a dialog
+  (`ui/prompt-dialog.tsx`) and checked by `web/lib/entry-name.ts`.
+  `use-file-actions.ts` calls the API, then moves open tabs, open folders and
+  the side view to the new paths. Renaming a file gives its tab a new Monaco
+  model (`moveModel`), so its undo history starts over. Deleting closes its
+  tabs, unsaved or not, after a confirmation that says so. Deleted files do
+  not go to the trash.
+- The side view (Cmd+\\, the split button in the tab bar, or "Open to the side"
+  in the tree menu) shows a second file to the right of the tabs. It always
+  shows a file that is also open as a tab, so both editors share one Monaco
+  model, and it closes when that tab closes. Markdown and SVG open there as a
+  live preview next to their source. Save, preview, go to line and go to
+  symbol act on whichever view was used last (`PaneId`), and the status bar
+  follows it.
 - Quick open and search skip `.git` plus the folders in
   `INDEX_SKIPPED_DIRECTORY_NAMES` (`node_modules`, `dist`, `build`, ...) and do
   not follow symlinks. `.gitignore` is not read. The file tree still shows
@@ -90,13 +128,21 @@ types/               types shared by server and web
   row is in the tab order. The key logic is pure and lives in
   `web/lib/tree-rows.ts`.
 - A tab is `text` or `image` (`TabKind`). Raster images open as picture-only
-  tabs that load through `GET raw` and reload when the file changes. Markdown
-  and SVG are text tabs with a Preview toggle (Cmd+Shift+V) that renders the
-  text in the editor, unsaved edits included. While a preview is up the editor
+  tabs that load through `GET raw` and reload when the file changes. Markdown,
+  SVG, JSON, CSV and TSV are text tabs with a Preview toggle (Cmd+Shift+V) that
+  renders the text in the editor, unsaved edits included (`previewKind` in
+  `web/lib/preview.ts`). CSV and TSV show as a table whose first row is the
+  header; clicking a header sorts up, down, then back to file order, and only
+  the first 1000 rows are drawn though sorting covers all of them. JSON shows
+  as a tree, open two levels deep, with long arrays and objects shown 200
+  entries at a time. Both parse a deferred copy of the text, so typing in a
+  large file does not lag. While a preview is up the editor
   is `invisible`, so it cannot take key presses.
 - Keyboard shortcuts are declared in `config/shortcuts.ts` and handled in
-  `web/hooks/use-global-shortcuts.ts`. On a Mac only Cmd counts, because
-  Ctrl+P and friends are text-editing keys there.
+  `web/hooks/use-global-shortcuts.ts`. A `command` shortcut answers only to
+  Cmd on a Mac, because Ctrl+P and friends are text-editing keys there. Handled
+  shortcuts stop propagating, so Monaco's own bindings for the same keys do
+  not run a second time.
 - The sidebar is resized from its right edge (drag, arrow keys, double-click
   to reset). The width is kept in `localStorage` and applied through the
   `--sidebar-width` CSS variable on the sidebar, which keeps Tailwind classes
@@ -148,10 +194,14 @@ theme and no theme toggle.
 - Buttons are pill-shaped and regular weight, as on cursor.com.
 - Scrollable chrome uses `ScrollArea` from `web/components/ui/` (Radix
   ScrollArea) instead of the browser scrollbar.
+- `ScrollArea` takes `isHorizontal` for content that is wider than the area,
+  such as the table preview.
 - Rendered Markdown is styled element by element in
   `web/components/markdown-preview.tsx`, with headings on Cursor's `text-md-sm`,
   `text-md` and `text-md-lg` sizes. Fenced code is colored by Monaco's own
   tokenizer, so it matches the editor.
+- Context menus use `ContextMenu` from `web/components/ui/` (Radix
+  ContextMenu). Dialogs are native `<dialog>` elements.
 - Toggle buttons pass `isPressed` to `Button`. Do not override its colors or
   padding through `className`: there is no class merging, so the override can
   lose to the class it was meant to replace.
@@ -174,15 +224,29 @@ This server can read and write files, so these hold for every change:
   `Sec-Fetch-Site`, and require `application/json` on writes.
 - All disk access goes through `resolveInside` in `server/workspace.ts`,
   which checks the path both as written and after resolving symlinks.
-- Writes only touch files that already exist.
+  Create, rename and delete go through `resolveEntryInside`, which resolves the
+  parent folder with `resolveInside` but never follows the last part of the
+  path, so renaming or deleting a symlink acts on the link and never on what
+  it points to.
+- `PUT file` only writes files that already exist. New files and folders come
+  only from `POST create`, which never overwrites. `POST rename` never
+  replaces an existing entry (a change of case only is allowed). None of the
+  three touch the opened folder itself, or `.git` and the other
+  `IGNORED_ENTRY_NAMES`, and all three take JSON bodies like every other
+  write.
 - Any new route that touches disk needs cases in `server/workspace.test.ts`
   and `server/app.test.ts`, including an attempt to escape the workspace.
 - The events route reports changed paths only, never contents. Readers still
   fetch through the guarded routes. Its tests live in `server/watcher.test.ts`.
+- `POST delete` removes folders recursively and does not use the trash. The UI
+  must always confirm first.
 - `GET files` and `GET search` take no path. They walk from the root, resolve
   every folder through `resolveInside`, and neither follow nor list symlinks.
   Search reads only through `readFile`, so it can never see more than the
-  editor can open. Its tests live in `server/search.test.ts`.
+  editor can open. Its tests live in `server/search.test.ts` and
+  `server/path-filter.test.ts`. A regular expression runs on the server's
+  main thread, so a pathological one can stall the server; the query is the
+  user's own, on their own machine.
 - `GET raw` serves bytes only for the image extensions in `config/preview.ts`,
   with the content type from that list. Every raw response carries a sandbox
   Content-Security-Policy, `nosniff` and a same-origin resource policy, because
@@ -216,8 +280,15 @@ This server can read and write files, so these hold for every change:
 - Monaco's `colorize` returns non-breaking spaces. The Markdown code block
   turns them back into spaces so copied code is not corrupted.
 - An open modal `<dialog>` makes the rest of the page inert, so `focus()` on
-  the editor silently fails until it closes. Quick open closes in a layout
-  effect for that reason.
+  the editor silently fails until it closes. Quick open and the prompt dialog
+  open and close in layout effects for that reason.
+- Monaco's pickers close when the editor takes focus. In
+  `web/components/code-editor.tsx` the effect that runs an `ActionRequest`
+  must stay after the one that focuses the editor when a preview closes.
+- The TypeScript worker starts on first use, so the first go-to-symbol in a
+  session can take a moment to list anything.
+- `ScrollArea` passes extra props and its ref to the Radix root, which is what
+  lets it be the trigger of the tree's context menu.
 - Adding or removing hooks in a custom hook breaks hot reload with a "change
   in the order of Hooks" error and a blank page. Reload the page.
 - Monaco 0.57 ignores `bracketPairColorization` in editor options. It is set
@@ -240,9 +311,10 @@ This server can read and write files, so these hold for every change:
 
 ## Not built yet
 
-- Search with regular expressions, whole-word matching or replace.
+- Replace in files.
+- JSON with comments (`tsconfig.json`): the JSON preview reports it as invalid.
 - Reading `.gitignore` for quick open and search.
 - Git changed-files list and diff view.
-- Creating, renaming and deleting files.
+- Moving files by drag and drop, undoing a delete, and resizing the side view.
 - Text files over 2 MB, images over 20 MB and other binary files are refused
   on purpose.

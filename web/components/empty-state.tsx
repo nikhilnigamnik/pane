@@ -6,6 +6,7 @@ import { Kbd } from './ui/kbd';
 
 const SHORTCUT_HINTS = [
   { shortcut: SHORTCUTS.QUICK_OPEN, hint: COPY.SHORTCUT_HINT_QUICK_OPEN },
+  { shortcut: SHORTCUTS.COMMAND_PALETTE, hint: COPY.SHORTCUT_HINT_COMMANDS },
   { shortcut: SHORTCUTS.SEARCH, hint: COPY.SHORTCUT_HINT_SEARCH },
   { shortcut: SHORTCUTS.SAVE, hint: COPY.SHORTCUT_HINT_SAVE },
 ];

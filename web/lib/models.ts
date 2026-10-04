@@ -59,3 +59,17 @@ export function replaceModelValue(model: monaco.editor.ITextModel, content: stri
     if (viewState) editor.restoreViewState(viewState);
   });
 }
+
+// Gives an open file's text a new path, unsaved edits included. Monaco keys models by path, so
+// a renamed file needs a new model; its undo history does not come along.
+export function moveModel(fromPath: string, toPath: string): monaco.editor.ITextModel | null {
+  const source = getModel(fromPath);
+  if (!source) return null;
+
+  // Something still open under the new name (a tab for a file that was deleted on disk) gives
+  // way to the file being moved there.
+  disposeModel(toPath);
+  const target = createModel(toPath, readModelValue(source));
+  source.dispose();
+  return target;
+}

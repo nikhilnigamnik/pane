@@ -6,12 +6,16 @@ export function isMac(): boolean {
   return MAC_PLATFORM_PATTERN.test(navigator.platform);
 }
 
+// Whether the platform's command key (Cmd on a Mac, Ctrl elsewhere) is held, and no other.
+export function hasCommandKey(event: KeyboardEvent | { metaKey: boolean; ctrlKey: boolean }): boolean {
+  return isMac() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+}
+
 export function matchesShortcut(event: KeyboardEvent, shortcut: Shortcut): boolean {
-  // Ctrl on a Mac belongs to the text keys (Ctrl+P moves the cursor up a line), so only Cmd
-  // counts there.
-  const hasModifier = isMac()
-    ? event.metaKey && !event.ctrlKey
-    : event.ctrlKey && !event.metaKey;
+  // Ctrl on a Mac belongs to the text keys (Ctrl+P moves the cursor up a line), so a command
+  // shortcut only answers to Cmd there.
+  const hasModifier =
+    shortcut.modifier === 'command' ? hasCommandKey(event) : event.ctrlKey && !event.metaKey;
 
   return (
     hasModifier &&
@@ -21,9 +25,14 @@ export function matchesShortcut(event: KeyboardEvent, shortcut: Shortcut): boole
   );
 }
 
+function modifierKey(shortcut: Shortcut): string {
+  if (!isMac()) return COPY.MODIFIER_KEY_OTHER;
+  return shortcut.modifier === 'command' ? COPY.MODIFIER_KEY_MAC : COPY.CONTROL_KEY_MAC;
+}
+
 // The keys to press, one entry per key cap.
 export function shortcutKeys(shortcut: Shortcut): string[] {
-  const keys: string[] = [isMac() ? COPY.MODIFIER_KEY_MAC : COPY.MODIFIER_KEY_OTHER];
+  const keys = [modifierKey(shortcut)];
   if (shortcut.hasShift) keys.push(isMac() ? COPY.SHIFT_KEY_MAC : COPY.SHIFT_KEY_OTHER);
   return [...keys, shortcut.key.toUpperCase()];
 }

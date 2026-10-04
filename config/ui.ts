@@ -12,6 +12,14 @@ export const SEARCH_DEBOUNCE_MS = 250;
 
 export const MARKDOWN_CODE_TAB_SIZE = 2;
 
+// A table preview draws at most this many rows. Sorting still covers every row.
+export const MAX_TABLE_ROWS = 1000;
+// How deep the JSON tree is open at first, and how deep "Expand all" goes.
+export const JSON_DEFAULT_EXPAND_DEPTH = 2;
+export const JSON_EXPAND_ALL_DEPTH = 32;
+// An object or array lists this many entries, then offers to show more.
+export const JSON_CHILDREN_PAGE_SIZE = 200;
+
 export const SIDEBAR_DEFAULT_WIDTH = 256;
 export const SIDEBAR_MIN_WIDTH = 180;
 export const SIDEBAR_MAX_WIDTH = 560;

@@ -10,6 +10,21 @@ export function parentPath(path: string): string {
   return path.slice(0, Math.max(0, path.lastIndexOf('/')));
 }
 
+export function joinPath(folder: string, name: string): string {
+  return folder === ROOT_PATH ? name : `${folder}/${name}`;
+}
+
+// True for the path itself and for everything inside it when it is a folder.
+export function isSameOrInside(path: string, folder: string): boolean {
+  return path === folder || path.startsWith(`${folder}/`);
+}
+
+// Where a path ends up after `from` is renamed to `to`, or null when the rename does not
+// touch it.
+export function remapPath(path: string, from: string, to: string): string | null {
+  return isSameOrInside(path, from) ? `${to}${path.slice(from.length)}` : null;
+}
+
 // Lower case and with its dot (".md"), or '' when there is none.
 export function fileExtension(path: string): string {
   const name = fileName(path);

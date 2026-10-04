@@ -28,6 +28,13 @@ export interface TextSelection {
 
 // Asks the editor to show and select some text. The id tells two requests for the same
 // place apart, so clicking the same search result twice works both times.
+// Asks one editor to run one of Monaco's actions, such as opening the go-to-line picker. The
+// id lets the same action be asked for twice in a row.
+export interface ActionRequest {
+  id: number;
+  actionId: string;
+}
+
 export interface RevealRequest extends TextSelection {
   id: number;
   path: string;

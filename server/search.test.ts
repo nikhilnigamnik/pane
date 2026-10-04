@@ -12,15 +12,29 @@ import {
 } from '@/config/server';
 import type { SearchResults } from '@/types/api';
 
-import { findMatches, searchWorkspace } from './search';
+import { findMatches, searchWorkspace, toPattern } from './search';
+import type { SearchOptions } from './search';
 import { createWorkspace } from './workspace';
 import type { Workspace } from './workspace';
+
+const TEN_MATCHES = { isWholeWord: false, limit: 10 };
 
 let root: string;
 let workspace: Workspace;
 
-async function search(query: string, isCaseSensitive = false): Promise<SearchResults> {
-  const result = await searchWorkspace(workspace, { query, isCaseSensitive });
+const PLAIN_TEXT: Omit<SearchOptions, 'query'> = {
+  isCaseSensitive: false,
+  isWholeWord: false,
+  isRegex: false,
+  include: '',
+  exclude: '',
+};
+
+async function search(
+  query: string,
+  options: Partial<Omit<SearchOptions, 'query'>> = {},
+): Promise<SearchResults> {
+  const result = await searchWorkspace(workspace, { ...PLAIN_TEXT, ...options, query });
   if (!result.success) throw new Error(`Expected success, got ${result.error.code}`);
   return result.data;
 }
@@ -42,7 +56,7 @@ afterEach(async () => {
 
 describe('findMatches', () => {
   it('reports the line, column and length of every match', () => {
-    const matches = findMatches('one two\ntwo one two\n', /two/g, 10);
+    const matches = findMatches('one two\ntwo one two\n', /two/g, TEN_MATCHES);
     expect(matches.map(({ line, column, length }) => ({ line, column, length }))).toEqual([
       { line: 1, column: 5, length: 3 },
       { line: 2, column: 1, length: 3 },
@@ -51,7 +65,7 @@ describe('findMatches', () => {
   });
 
   it('drops indentation from the preview and says where the match sits in it', () => {
-    const [match] = findMatches('    const value = 1;\r\n', /value/g, 10);
+    const [match] = findMatches('    const value = 1;\r\n', /value/g, TEN_MATCHES);
     expect(match).toEqual({
       line: 1,
       column: 11,
@@ -63,7 +77,7 @@ describe('findMatches', () => {
   });
 
   it('starts the preview shortly before a match that sits far into the line', () => {
-    const [match] = findMatches('  const first = 1; const second = 2; const needle = 3;', /needle/g, 10);
+    const [match] = findMatches('  const first = 1; const second = 2; const needle = 3;', /needle/g, TEN_MATCHES);
 
     // The cut falls 12 characters before the match and then moves on to the next word.
     expect(match).toEqual({
@@ -78,7 +92,7 @@ describe('findMatches', () => {
 
   it('cuts a long line to a window around the match', () => {
     const line = `${'a'.repeat(5000)}needle${'b'.repeat(5000)}`;
-    const [match] = findMatches(line, /needle/g, 10);
+    const [match] = findMatches(line, /needle/g, TEN_MATCHES);
 
     expect(match?.column).toBe(5001);
     expect(match?.preview).toHaveLength(SEARCH_PREVIEW_MAX_LENGTH);
@@ -88,17 +102,51 @@ describe('findMatches', () => {
   });
 
   it('keeps a match that sits inside the indentation', () => {
-    const [match] = findMatches('\t\tvalue', /\t/g, 10);
+    const [match] = findMatches('\t\tvalue', /\t/g, TEN_MATCHES);
     expect(match).toMatchObject({ column: 1, preview: '\t\tvalue', previewOffset: 0 });
   });
 
   it('does not count a byte order mark as a column', () => {
-    const [match] = findMatches('﻿hello\n', /hello/g, 10);
+    const [match] = findMatches('﻿hello\n', /hello/g, TEN_MATCHES);
     expect(match?.column).toBe(1);
   });
 
+  it('skips matches that are empty', () => {
+    expect(findMatches('abc', /x*/g, TEN_MATCHES)).toEqual([]);
+  });
+
+  it('marks only the first line of a match that runs over several lines', () => {
+    const [match] = findMatches('one two\nthree', /two\nthree/g, TEN_MATCHES);
+    expect(match).toMatchObject({ line: 1, column: 5, length: 3 });
+  });
+
+  it('keeps only whole words when asked to', () => {
+    const options = { isWholeWord: true, limit: 10 };
+    const columns = (text: string) => findMatches(text, /cat/g, options).map((match) => match.column);
+
+    expect(columns('cat concat cats cat_ (cat) café_cat')).toEqual([1, 23]);
+    expect(columns('über-cat')).toEqual([6]);
+    expect(columns('écat cat')).toEqual([6]);
+  });
+
   it('stops at the limit', () => {
-    expect(findMatches('a a a a a', /a/g, 3)).toHaveLength(3);
+    expect(findMatches('a a a a a', /a/g, { isWholeWord: false, limit: 3 })).toHaveLength(3);
+  });
+});
+
+describe('toPattern', () => {
+  it('escapes plain text and keeps regular expressions as written', () => {
+    const plain = { isRegex: false, isCaseSensitive: true };
+    const regex = { isRegex: true, isCaseSensitive: false };
+
+    expect(toPattern('a.b', plain)?.source).toBe('a\\.b');
+    expect(toPattern('a.b', regex)?.source).toBe('a.b');
+    expect(toPattern('a.b', regex)?.flags).toBe('gi');
+  });
+
+  it('returns null for a regular expression that does not compile', () => {
+    expect(toPattern('(unclosed', { isRegex: true, isCaseSensitive: false })).toBeNull();
+    expect(toPattern('(unclosed', { isRegex: false, isCaseSensitive: false })).not.toBeNull();
   });
 });
 
@@ -115,7 +163,7 @@ describe('searchWorkspace', () => {
   });
 
   it('matches case exactly when asked to', async () => {
-    const results = await search('Widget', true);
+    const results = await search('Widget', { isCaseSensitive: true });
     expect(results.files.map((file) => file.path)).toEqual(['readme.md']);
   });
 
@@ -152,6 +200,38 @@ describe('searchWorkspace', () => {
     }
   });
 
+  it('searches with a regular expression', async () => {
+    const results = await search('func\\w+\\s+widget', { isRegex: true });
+    expect(results.files.map((file) => [file.path, file.matches[0]?.length])).toEqual([
+      ['src/widget.ts', 15],
+    ]);
+  });
+
+  it('reports a regular expression that does not compile', async () => {
+    const result = await searchWorkspace(workspace, { ...PLAIN_TEXT, query: '([', isRegex: true });
+    expect(result.success ? null : result.error.code).toBe('invalid_pattern');
+  });
+
+  it('matches whole words only when asked to', async () => {
+    await fs.writeFile(path.join(root, 'words.txt'), 'widgets\n');
+
+    const loose = await search('widget');
+    const whole = await search('widget', { isWholeWord: true });
+    expect(loose.files.map((file) => file.path)).toContain('words.txt');
+    expect(whole.files.map((file) => file.path)).not.toContain('words.txt');
+    expect(whole.matchCount).toBe(3);
+  });
+
+  it('limits the files searched with include and exclude patterns', async () => {
+    const paths = async (options: Partial<SearchOptions>) =>
+      (await search('widget', options)).files.map((file) => file.path);
+
+    expect(await paths({ include: '*.ts' })).toEqual(['src/widget.ts']);
+    expect(await paths({ include: 'src' })).toEqual(['src/widget.ts']);
+    expect(await paths({ exclude: 'src/' })).toEqual(['readme.md']);
+    expect(await paths({ include: '*.md, *.ts', exclude: 'widget.ts' })).toEqual(['readme.md']);
+  });
+
   it('stops at the match limit and says the answer is incomplete', async () => {
     await fs.writeFile(path.join(root, 'many.txt'), 'zz\n'.repeat(MAX_SEARCH_MATCHES + 50));
 
@@ -165,8 +245,8 @@ describe('searchWorkspace', () => {
     controller.abort();
 
     const result = await searchWorkspace(workspace, {
+      ...PLAIN_TEXT,
       query: 'widget',
-      isCaseSensitive: false,
       signal: controller.signal,
     });
     expect(result).toEqual({

@@ -1,6 +1,6 @@
 import { isUtf8 } from 'node:buffer';
 import { promises as fs } from 'node:fs';
-import type { Dirent } from 'node:fs';
+import type { Dirent, Stats } from 'node:fs';
 import path from 'node:path';
 
 import { IMAGE_MIME_TYPES, MAX_IMAGE_BYTES } from '@/config/preview';
@@ -27,6 +27,11 @@ import { errorCode, fail, ok } from './result';
 export interface Workspace {
   root: string;
   name: string;
+}
+
+export interface RenameRequest {
+  fromPath: string;
+  toPath: string;
 }
 
 export interface ImageFile {
@@ -182,6 +187,119 @@ export async function readFile(
   } catch {
     return fail('io_error');
   }
+}
+
+// For operations on an entry itself (create, rename, delete). Its folder is resolved through
+// resolveInside, symlinks included, but the last part of the path is not followed: renaming
+// or deleting a link must act on the link, never on whatever it points to.
+async function resolveEntryInside(
+  workspace: Workspace,
+  requestedPath: string,
+): Promise<Result<ResolvedPath>> {
+  const candidate = path.resolve(workspace.root, requestedPath);
+  if (!isInside(workspace.root, candidate)) return fail('outside_workspace');
+  // The opened folder itself can be listed but never created, renamed or deleted.
+  if (candidate === workspace.root) return fail('forbidden');
+
+  const relativePath = toPosixRelative(workspace.root, candidate);
+  // Entries the tree hides (.git, .DS_Store) are not this app's to change.
+  const segments = relativePath.split('/');
+  if (segments.some((segment) => IGNORED_ENTRY_NAMES.includes(segment))) return fail('forbidden');
+
+  const parent = await resolveInside(workspace, path.dirname(candidate));
+  if (!parent.success) return parent;
+  return ok({ absolutePath: path.join(parent.data.absolutePath, path.basename(candidate)), relativePath });
+}
+
+async function entryStats(absolutePath: string): Promise<Stats | null> {
+  try {
+    return await fs.lstat(absolutePath);
+  } catch {
+    return null;
+  }
+}
+
+function entryFailure<T>(error: unknown): Result<T> {
+  switch (errorCode(error)) {
+    case 'EEXIST':
+    case 'ENOTEMPTY':
+      return fail('already_exists');
+    case 'ENOENT':
+      return fail('not_found');
+    case 'ENOTDIR':
+      return fail('not_a_directory');
+    default:
+      return fail('io_error');
+  }
+}
+
+// Creates an empty file or folder. The folder it goes in must already exist, and nothing is
+// ever overwritten.
+export async function createEntry(
+  workspace: Workspace,
+  requestedPath: string,
+  kind: EntryKind,
+): Promise<Result<TreeEntry>> {
+  const resolved = await resolveEntryInside(workspace, requestedPath);
+  if (!resolved.success) return resolved;
+  const { absolutePath, relativePath } = resolved.data;
+
+  try {
+    if (kind === 'directory') await fs.mkdir(absolutePath);
+    // "wx" fails when anything, even a dangling symlink, already has the name.
+    else await fs.writeFile(absolutePath, '', { flag: 'wx' });
+  } catch (error) {
+    return entryFailure(error);
+  }
+  return ok({ name: path.basename(absolutePath), path: relativePath, kind });
+}
+
+// Moves a file or folder to a new path inside the workspace. An existing entry at the new
+// path is never replaced.
+export async function renameEntry(
+  workspace: Workspace,
+  { fromPath, toPath }: RenameRequest,
+): Promise<Result<TreeEntry>> {
+  const from = await resolveEntryInside(workspace, fromPath);
+  if (!from.success) return from;
+  const to = await resolveEntryInside(workspace, toPath);
+  if (!to.success) return to;
+
+  const source = await entryStats(from.data.absolutePath);
+  if (!source) return fail('not_found');
+  if (to.data.relativePath.startsWith(`${from.data.relativePath}/`)) return fail('invalid_request');
+
+  // On a case-insensitive disk "Readme.md" and "README.md" are the same file. Renaming one to
+  // the other only changes the case, so it is not a clash.
+  const target = await entryStats(to.data.absolutePath);
+  const isSameEntry = target?.ino === source.ino && target.dev === source.dev;
+  if (target && !isSameEntry) return fail('already_exists');
+
+  try {
+    await fs.rename(from.data.absolutePath, to.data.absolutePath);
+  } catch (error) {
+    return entryFailure(error);
+  }
+  const kind: EntryKind = source.isDirectory() ? 'directory' : 'file';
+  return ok({ name: path.basename(to.data.absolutePath), path: to.data.relativePath, kind });
+}
+
+// Deletes a file, or a folder with everything in it. It does not go to the trash.
+export async function deleteEntry(
+  workspace: Workspace,
+  requestedPath: string,
+): Promise<Result<null>> {
+  const resolved = await resolveEntryInside(workspace, requestedPath);
+  if (!resolved.success) return resolved;
+  if (!(await entryStats(resolved.data.absolutePath))) return fail('not_found');
+
+  try {
+    // rm looks at the link itself, so a symlink is removed without touching what it points to.
+    await fs.rm(resolved.data.absolutePath, { recursive: true });
+  } catch (error) {
+    return entryFailure(error);
+  }
+  return ok(null);
 }
 
 // Raw bytes are only handed out for known image types, so this cannot be used to download

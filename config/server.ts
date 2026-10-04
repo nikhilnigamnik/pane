@@ -40,6 +40,11 @@ export const INDEX_SKIPPED_DIRECTORY_NAMES = [
 export const MAX_INDEXED_FILES = 20000;
 
 export const MAX_SEARCH_QUERY_LENGTH = 200;
+// Longest list of include or exclude patterns a search accepts.
+export const MAX_SEARCH_FILTER_LENGTH = 1000;
+// Bodies of the create, rename and delete routes only carry paths. A path can take up to three
+// bytes per character once encoded, and a rename carries two.
+export const MAX_ENTRY_BODY_BYTES = 8 * MAX_PATH_LENGTH;
 // Past this many matches a search stops and marks its answer as incomplete.
 export const MAX_SEARCH_MATCHES = 1000;
 // Longest stretch of a matching line that is sent back as its preview.

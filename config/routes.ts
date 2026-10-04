@@ -7,6 +7,9 @@ export const API_ROUTES = {
   FILES: `${API_PREFIX}/files`,
   SEARCH: `${API_PREFIX}/search`,
   RAW: `${API_PREFIX}/raw`,
+  CREATE: `${API_PREFIX}/create`,
+  RENAME: `${API_PREFIX}/rename`,
+  DELETE: `${API_PREFIX}/delete`,
   EVENTS: `${API_PREFIX}/events`,
 } as const;
 

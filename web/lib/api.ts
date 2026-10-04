@@ -2,11 +2,13 @@ import { COPY } from '@/config/copy';
 import { API_ROUTES } from '@/config/routes';
 import type {
   ApiError,
+  EntryKind,
   FileContents,
   FileIndex,
   Result,
   SaveRequest,
   SaveResult,
+  SearchOptions,
   SearchResults,
   TreeEntry,
   WorkspaceMeta,
@@ -54,12 +56,38 @@ export function fetchFiles(): Promise<Result<FileIndex>> {
 }
 
 export function searchFiles(
-  query: string,
-  isCaseSensitive: boolean,
+  options: SearchOptions,
   signal: AbortSignal,
 ): Promise<Result<SearchResults>> {
-  const params = new URLSearchParams({ query, isCaseSensitive: String(isCaseSensitive) });
+  const params = new URLSearchParams({
+    query: options.query,
+    isCaseSensitive: String(options.isCaseSensitive),
+    isWholeWord: String(options.isWholeWord),
+    isRegex: String(options.isRegex),
+    include: options.include,
+    exclude: options.exclude,
+  });
   return request(`${API_ROUTES.SEARCH}?${params}`, { signal });
+}
+
+function postJson<T>(route: string, body: unknown): Promise<Result<T>> {
+  return request(route, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export function createEntry(path: string, kind: EntryKind): Promise<Result<TreeEntry>> {
+  return postJson(API_ROUTES.CREATE, { path, kind });
+}
+
+export function renameEntry(fromPath: string, toPath: string): Promise<Result<TreeEntry>> {
+  return postJson(API_ROUTES.RENAME, { fromPath, toPath });
+}
+
+export function deleteEntry(path: string): Promise<Result<null>> {
+  return postJson(API_ROUTES.DELETE, { path });
 }
 
 export function rawFileUrl(path: string): string {

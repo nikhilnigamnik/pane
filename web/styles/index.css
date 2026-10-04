@@ -40,6 +40,8 @@
   --color-theme-accent: var(--cursor-accent);
   --color-theme-success: var(--cursor-success);
   --color-theme-error: var(--cursor-error);
+  --color-theme-blue: var(--cursor-blue);
+  --color-theme-lavender: var(--cursor-lavender);
 
   /* Cursor sets its product UI in the system font and code in Berkeley Mono. Berkeley Mono is
      a paid font, so it is only used when it is installed on this machine. */

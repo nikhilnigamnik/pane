@@ -29,6 +29,14 @@ function put(body: unknown, headers: Record<string, string> = {}) {
   });
 }
 
+function post(route: string, body: unknown, headers: Record<string, string> = {}) {
+  return app.request(route, {
+    method: 'POST',
+    headers: { host: LOCAL_HOST, 'content-type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
 beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'pane-app-test-'));
   await fs.writeFile(path.join(root, 'notes.txt'), 'one\n');
@@ -105,6 +113,20 @@ describe('search API', () => {
     expect((await response.json()).data.matchCount).toBe(0);
   });
 
+  it('takes regex, whole word and path filters, and rejects a broken pattern', async () => {
+    await fs.mkdir(path.join(root, 'sub'));
+    await fs.writeFile(path.join(root, 'sub', 'more.md'), 'one, someone\n');
+
+    const regex = await (await get(`${API_ROUTES.SEARCH}?query=o.e&isRegex=true`)).json();
+    expect(regex.data.matchCount).toBe(4);
+    const whole = await (await get(`${API_ROUTES.SEARCH}?query=one&isWholeWord=true`)).json();
+    expect(whole.data.matchCount).toBe(2);
+    const filtered = await (await get(`${API_ROUTES.SEARCH}?query=one&include=sub&exclude=*.txt`)).json();
+    expect(filtered.data.files.map((file: { path: string }) => file.path)).toEqual(['sub/more.md']);
+
+    expect((await get(`${API_ROUTES.SEARCH}?query=(&isRegex=true`)).status).toBe(400);
+  });
+
   it('rejects a missing, multi-line or oversized query', async () => {
     const longQuery = 'a'.repeat(MAX_SEARCH_QUERY_LENGTH + 1);
 
@@ -160,6 +182,62 @@ describe('raw API', () => {
     } finally {
       await fs.rm(outside, { recursive: true, force: true });
     }
+  });
+});
+
+describe('entry API', () => {
+  it('creates, renames and deletes files and folders', async () => {
+    expect((await post(API_ROUTES.CREATE, { path: 'docs', kind: 'directory' })).status).toBe(200);
+    const created = await post(API_ROUTES.CREATE, { path: 'docs/a.md', kind: 'file' });
+    expect((await created.json()).data).toEqual({ name: 'a.md', path: 'docs/a.md', kind: 'file' });
+
+    const renamed = await post(API_ROUTES.RENAME, { fromPath: 'docs/a.md', toPath: 'docs/b.md' });
+    expect(renamed.status).toBe(200);
+    expect(await fs.readdir(path.join(root, 'docs'))).toEqual(['b.md']);
+
+    expect((await post(API_ROUTES.DELETE, { path: 'docs' })).status).toBe(200);
+    expect(await fs.readdir(root)).toEqual(['notes.txt']);
+  });
+
+  it('maps errors to status codes', async () => {
+    expect((await post(API_ROUTES.CREATE, { path: 'notes.txt', kind: 'file' })).status).toBe(409);
+    expect((await post(API_ROUTES.CREATE, { path: 'x', kind: 'socket' })).status).toBe(400);
+    expect((await post(API_ROUTES.RENAME, { fromPath: 'gone', toPath: 'x' })).status).toBe(404);
+    expect((await post(API_ROUTES.DELETE, { path: '' })).status).toBe(400);
+    expect((await post(API_ROUTES.DELETE, { path: '.' })).status).toBe(403);
+  });
+
+  it('refuses to reach outside the workspace', async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'pane-app-outside-'));
+    try {
+      await fs.writeFile(path.join(outside, 'keep.txt'), 'keep\n');
+      await fs.symlink(outside, path.join(root, 'linked'));
+      const escape = `../${path.basename(outside)}/keep.txt`;
+
+      expect((await post(API_ROUTES.CREATE, { path: '../new.txt', kind: 'file' })).status).toBe(403);
+      expect((await post(API_ROUTES.CREATE, { path: 'linked/new.txt', kind: 'file' })).status).toBe(403);
+      expect((await post(API_ROUTES.RENAME, { fromPath: escape, toPath: 'stolen.txt' })).status).toBe(403);
+      expect((await post(API_ROUTES.RENAME, { fromPath: 'notes.txt', toPath: 'linked/n.txt' })).status).toBe(403);
+      expect((await post(API_ROUTES.DELETE, { path: escape })).status).toBe(403);
+      expect((await post(API_ROUTES.DELETE, { path: 'linked/keep.txt' })).status).toBe(403);
+
+      expect(await fs.readdir(outside)).toEqual(['keep.txt']);
+      expect(await fs.readdir(root)).toEqual(['linked', 'notes.txt']);
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('only accepts JSON from this app', async () => {
+    const body = { path: 'notes.txt' };
+    expect((await post(API_ROUTES.DELETE, body, { 'content-type': 'text/plain' })).status).toBe(400);
+    expect((await post(API_ROUTES.DELETE, body, { origin: 'https://evil.example' })).status).toBe(403);
+    expect((await post(API_ROUTES.DELETE, body, { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+    expect(
+      (await post(API_ROUTES.CREATE, { path: 'x.txt', kind: 'file' }, { origin: 'https://evil.example' }))
+        .status,
+    ).toBe(403);
+    expect(await fs.readdir(root)).toEqual(['notes.txt']);
   });
 });
 

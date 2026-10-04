@@ -9,11 +9,14 @@ import { MAX_FILE_BYTES } from '@/config/server';
 import type { Result } from '@/types/api';
 
 import {
+  createEntry,
   createWorkspace,
+  deleteEntry,
   listDirectory,
   listFiles,
   readFile,
   readImage,
+  renameEntry,
   writeFile,
 } from './workspace';
 import type { Workspace } from './workspace';
@@ -222,5 +225,165 @@ describe('writeFile', () => {
 
     const missing = { path: 'new.txt', content: 'x', expectedMtimeMs: null };
     expectFailure(await writeFile(workspace, missing), 'not_found');
+  });
+});
+
+async function exists(target: string): Promise<boolean> {
+  try {
+    await fs.lstat(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+describe('createEntry', () => {
+  it('creates an empty file and a folder', async () => {
+    expect(expectData(await createEntry(workspace, 'src/new.ts', 'file'))).toEqual({
+      name: 'new.ts',
+      path: 'src/new.ts',
+      kind: 'file',
+    });
+    expectData(await createEntry(workspace, 'docs', 'directory'));
+
+    expect(await fs.readFile(path.join(workspace.root, 'src', 'new.ts'), 'utf8')).toBe('');
+    expect((await fs.stat(path.join(workspace.root, 'docs'))).isDirectory()).toBe(true);
+  });
+
+  it('never replaces something that already exists', async () => {
+    expectFailure(await createEntry(workspace, 'readme.md', 'file'), 'already_exists');
+    expectFailure(await createEntry(workspace, 'src', 'directory'), 'already_exists');
+    expectFailure(await createEntry(workspace, 'src', 'file'), 'already_exists');
+    expect(await fs.readFile(path.join(workspace.root, 'readme.md'), 'utf8')).toBe('# hello\n');
+  });
+
+  it('needs the folder it goes in to exist', async () => {
+    expectFailure(await createEntry(workspace, 'missing/new.ts', 'file'), 'not_found');
+    expectFailure(await createEntry(workspace, 'readme.md/new.ts', 'file'), 'not_a_directory');
+  });
+
+  it('refuses paths outside the workspace, the workspace itself and .git', async () => {
+    await fs.mkdir(path.join(sandbox, 'outside'));
+    await fs.symlink(path.join(sandbox, 'outside'), path.join(workspace.root, 'linked'));
+
+    expectFailure(await createEntry(workspace, '../escape.txt', 'file'), 'outside_workspace');
+    expectFailure(await createEntry(workspace, path.join(sandbox, 'x.txt'), 'file'), 'outside_workspace');
+    expectFailure(await createEntry(workspace, 'linked/escape.txt', 'file'), 'outside_workspace');
+    expectFailure(await createEntry(workspace, '.', 'directory'), 'forbidden');
+    expectFailure(await createEntry(workspace, '.git/hooks', 'directory'), 'forbidden');
+
+    expect(await exists(path.join(sandbox, 'escape.txt'))).toBe(false);
+    expect(await fs.readdir(path.join(sandbox, 'outside'))).toEqual([]);
+  });
+});
+
+describe('renameEntry', () => {
+  it('renames a file and moves a folder with its contents', async () => {
+    expect(expectData(await renameEntry(workspace, { fromPath: 'readme.md', toPath: 'README.txt' }))).toEqual({
+      name: 'README.txt',
+      path: 'README.txt',
+      kind: 'file',
+    });
+    await fs.mkdir(path.join(workspace.root, 'lib'));
+    expectData(await renameEntry(workspace, { fromPath: 'src', toPath: 'lib/source' }));
+
+    expect(await fs.readFile(path.join(workspace.root, 'README.txt'), 'utf8')).toBe('# hello\n');
+    expect(await fs.readFile(path.join(workspace.root, 'lib', 'source', 'index.ts'), 'utf8')).toBe(
+      'export const a = 1;\n',
+    );
+    expect(await exists(path.join(workspace.root, 'src'))).toBe(false);
+  });
+
+  it('never replaces something that already exists', async () => {
+    const request = { fromPath: 'readme.md', toPath: 'src/index.ts' };
+    expectFailure(await renameEntry(workspace, request), 'already_exists');
+    expect(await fs.readFile(path.join(workspace.root, 'src', 'index.ts'), 'utf8')).toBe(
+      'export const a = 1;\n',
+    );
+  });
+
+  it('allows a change of case only', async () => {
+    expectData(await renameEntry(workspace, { fromPath: 'readme.md', toPath: 'README.md' }));
+    expect(await fs.readdir(workspace.root)).toContain('README.md');
+  });
+
+  it('refuses to move a folder into itself or rename something missing', async () => {
+    expectFailure(await renameEntry(workspace, { fromPath: 'src', toPath: 'src/inner' }), 'invalid_request');
+    expectFailure(await renameEntry(workspace, { fromPath: 'nope.ts', toPath: 'yes.ts' }), 'not_found');
+  });
+
+  it('cannot move anything in from or out to outside the workspace', async () => {
+    await fs.mkdir(path.join(sandbox, 'outside'));
+    await fs.symlink(path.join(sandbox, 'outside'), path.join(workspace.root, 'linked'));
+
+    const attempts = [
+      { fromPath: 'readme.md', toPath: '../stolen.md' },
+      { fromPath: 'readme.md', toPath: 'linked/stolen.md' },
+      { fromPath: '../secret.txt', toPath: 'secret.txt' },
+      { fromPath: 'src', toPath: '.' },
+      { fromPath: '.', toPath: 'moved' },
+    ];
+    for (const attempt of attempts) {
+      expect((await renameEntry(workspace, attempt)).success).toBe(false);
+    }
+    expectFailure(await renameEntry(workspace, { fromPath: 'readme.md', toPath: '.git/x' }), 'forbidden');
+
+    expect(await fs.readdir(path.join(sandbox, 'outside'))).toEqual([]);
+    expect(await fs.readFile(path.join(sandbox, 'secret.txt'), 'utf8')).toBe('outside\n');
+    expect(await exists(path.join(workspace.root, 'readme.md'))).toBe(true);
+  });
+
+  it('renames a symlink itself, not the file it points to', async () => {
+    await fs.symlink(path.join(sandbox, 'secret.txt'), path.join(workspace.root, 'link.txt'));
+
+    expectData(await renameEntry(workspace, { fromPath: 'link.txt', toPath: 'renamed.txt' }));
+    expect((await fs.lstat(path.join(workspace.root, 'renamed.txt'))).isSymbolicLink()).toBe(true);
+    expect(await fs.readFile(path.join(sandbox, 'secret.txt'), 'utf8')).toBe('outside\n');
+  });
+});
+
+describe('deleteEntry', () => {
+  it('deletes a file and a folder with everything in it', async () => {
+    expectData(await deleteEntry(workspace, 'readme.md'));
+    expectData(await deleteEntry(workspace, 'src'));
+
+    expect(await exists(path.join(workspace.root, 'readme.md'))).toBe(false);
+    expect(await exists(path.join(workspace.root, 'src'))).toBe(false);
+  });
+
+  it('reports a missing entry', async () => {
+    expectFailure(await deleteEntry(workspace, 'nope.ts'), 'not_found');
+  });
+
+  it('refuses the workspace itself, .git and anything outside', async () => {
+    await fs.mkdir(path.join(sandbox, 'outside'));
+    await fs.writeFile(path.join(sandbox, 'outside', 'keep.txt'), 'keep\n');
+    await fs.symlink(path.join(sandbox, 'outside'), path.join(workspace.root, 'linked'));
+
+    expectFailure(await deleteEntry(workspace, '.'), 'forbidden');
+    expectFailure(await deleteEntry(workspace, 'src/..'), 'forbidden');
+    expectFailure(await deleteEntry(workspace, '.git'), 'forbidden');
+    expectFailure(await deleteEntry(workspace, '../secret.txt'), 'outside_workspace');
+    expectFailure(await deleteEntry(workspace, path.join(sandbox, 'secret.txt')), 'outside_workspace');
+    expectFailure(await deleteEntry(workspace, 'linked/keep.txt'), 'outside_workspace');
+
+    expect(await exists(workspace.root)).toBe(true);
+    expect(await exists(path.join(workspace.root, '.git'))).toBe(true);
+    expect(await fs.readFile(path.join(sandbox, 'secret.txt'), 'utf8')).toBe('outside\n');
+    expect(await fs.readFile(path.join(sandbox, 'outside', 'keep.txt'), 'utf8')).toBe('keep\n');
+  });
+
+  it('removes a symlink without touching what it points to', async () => {
+    await fs.mkdir(path.join(sandbox, 'outside'));
+    await fs.writeFile(path.join(sandbox, 'outside', 'keep.txt'), 'keep\n');
+    await fs.symlink(path.join(sandbox, 'outside'), path.join(workspace.root, 'linked-folder'));
+    await fs.symlink(path.join(sandbox, 'secret.txt'), path.join(workspace.root, 'linked.txt'));
+
+    expectData(await deleteEntry(workspace, 'linked-folder'));
+    expectData(await deleteEntry(workspace, 'linked.txt'));
+
+    expect(await exists(path.join(workspace.root, 'linked-folder'))).toBe(false);
+    expect(await fs.readFile(path.join(sandbox, 'outside', 'keep.txt'), 'utf8')).toBe('keep\n');
+    expect(await fs.readFile(path.join(sandbox, 'secret.txt'), 'utf8')).toBe('outside\n');
   });
 });

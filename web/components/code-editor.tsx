@@ -2,7 +2,7 @@ import * as monaco from 'monaco-editor';
 import { useEffect, useRef } from 'react';
 
 import { EDITOR_OPTIONS } from '@/config/editor';
-import type { CursorPosition, RevealRequest } from '@/types/editor';
+import type { ActionRequest, CursorPosition, RevealRequest } from '@/types/editor';
 import { useLatest } from '@/web/hooks/use-latest';
 import { cn } from '@/web/lib/cn';
 import { applyEditorTheme } from '@/web/lib/editor-theme';
@@ -13,8 +13,10 @@ interface CodeEditorProps {
   // True while a preview covers the editor. A hidden editor must not take key presses.
   isHidden: boolean;
   revealRequest: RevealRequest | null;
+  actionRequest: ActionRequest | null;
   onContentChange: (path: string) => void;
   onCursorChange: (position: CursorPosition | null) => void;
+  onFocus: () => void;
 }
 
 function toCursor(position: monaco.Position | null): CursorPosition | null {
@@ -25,15 +27,18 @@ export function CodeEditor({
   activePath,
   isHidden,
   revealRequest,
+  actionRequest,
   onContentChange,
   onCursorChange,
+  onFocus,
 }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const viewStates = useRef(new Map<string, monaco.editor.ICodeEditorViewState>());
   const shownPath = useRef<string | null>(null);
   const appliedRevealId = useRef(0);
-  const handlers = useLatest({ onContentChange, onCursorChange });
+  const appliedActionId = useRef(0);
+  const handlers = useLatest({ onContentChange, onCursorChange, onFocus });
 
   // One editor instance for the whole app; tabs swap its model instead of recreating it.
   useEffect(() => {
@@ -54,10 +59,12 @@ export function CodeEditor({
     const cursorListener = editor.onDidChangeCursorPosition((event) => {
       handlers.current.onCursorChange(toCursor(event.position));
     });
+    const focusListener = editor.onDidFocusEditorWidget(() => handlers.current.onFocus());
 
     return () => {
       contentListener.dispose();
       cursorListener.dispose();
+      focusListener.dispose();
       editor.dispose();
       editorRef.current = null;
       shownPath.current = null;
@@ -110,6 +117,19 @@ export function CodeEditor({
     const editor = editorRef.current;
     if (!isHidden && editor?.getModel()) editor.focus();
   }, [isHidden]);
+
+  // Waits until the editor is showing text: an action asked for from a preview runs once the
+  // source is back on screen. It comes after the effect above, because a picker closes when
+  // the editor takes focus after it opens.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !actionRequest || actionRequest.id === appliedActionId.current) return;
+    if (isHidden || !editor.getModel()) return;
+
+    appliedActionId.current = actionRequest.id;
+    editor.focus();
+    void editor.getAction(actionRequest.actionId)?.run();
+  }, [actionRequest, isHidden, activePath]);
 
   useEffect(() => {
     applyEditorTheme();

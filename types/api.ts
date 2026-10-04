@@ -35,6 +35,17 @@ export interface FileIndex {
   isTruncated: boolean;
 }
 
+export interface SearchOptions {
+  query: string;
+  isCaseSensitive: boolean;
+  isWholeWord: boolean;
+  // The query is a JavaScript regular expression instead of plain text.
+  isRegex: boolean;
+  // Comma-separated glob patterns that limit which files are searched.
+  include: string;
+  exclude: string;
+}
+
 export interface SearchMatch {
   // Both count from 1, the way editors do.
   line: number;
@@ -77,6 +88,8 @@ export type ApiErrorCode =
   | 'too_large'
   | 'binary'
   | 'not_an_image'
+  | 'invalid_pattern'
+  | 'already_exists'
   | 'unsupported_encoding'
   | 'conflict'
   | 'io_error';

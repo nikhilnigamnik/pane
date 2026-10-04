@@ -1,19 +1,37 @@
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
+import type { z } from 'zod';
 import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
 import { API_PREFIX, API_ROUTES, CHANGE_EVENT_NAME } from '@/config/routes';
-import { LOOPBACK_HOSTNAMES, MAX_SAVE_BODY_BYTES } from '@/config/server';
+import { LOOPBACK_HOSTNAMES, MAX_ENTRY_BODY_BYTES, MAX_SAVE_BODY_BYTES } from '@/config/server';
 import type { ApiErrorCode, Result, WorkspaceMeta } from '@/types/api';
 
 import { fail, ok } from './result';
-import { fileQuerySchema, saveBodySchema, searchQuerySchema, treeQuerySchema } from './schema';
+import {
+  createEntryBodySchema,
+  deleteEntryBodySchema,
+  fileQuerySchema,
+  renameEntryBodySchema,
+  saveBodySchema,
+  searchQuerySchema,
+  treeQuerySchema,
+} from './schema';
 import { searchWorkspace } from './search';
 import { createStaticHandler } from './static';
 import { createWatcher } from './watcher';
-import { listDirectory, listFiles, readFile, readImage, writeFile } from './workspace';
+import {
+  createEntry,
+  deleteEntry,
+  listDirectory,
+  listFiles,
+  readFile,
+  readImage,
+  renameEntry,
+  writeFile,
+} from './workspace';
 import type { Workspace } from './workspace';
 
 export interface AppOptions {
@@ -32,6 +50,8 @@ const STATUS_BY_ERROR: Record<ApiErrorCode, ContentfulStatusCode> = {
   too_large: 413,
   binary: 415,
   not_an_image: 415,
+  invalid_pattern: 400,
+  already_exists: 409,
   unsupported_encoding: 415,
   conflict: 409,
   io_error: 500,
@@ -69,6 +89,26 @@ function isLoopbackOrigin(origin: string): boolean {
     return false;
   }
 }
+
+// Every write takes a JSON body. Requiring JSON forces browsers to preflight cross-origin
+// writes, which are never allowed. Returns null for anything that is not a valid body.
+async function readJsonBody<Schema extends z.ZodType>(
+  c: Context,
+  schema: Schema,
+): Promise<z.output<Schema> | null> {
+  if (!c.req.header('content-type')?.startsWith(JSON_CONTENT_TYPE)) return null;
+  try {
+    const body = schema.safeParse(await c.req.json());
+    return body.success ? body.data : null;
+  } catch {
+    return null;
+  }
+}
+
+const limitEntryBody = bodyLimit({
+  maxSize: MAX_ENTRY_BODY_BYTES,
+  onError: (c) => respond(c, fail('invalid_request')),
+});
 
 // A website can point its own domain at 127.0.0.1 (DNS rebinding) to reach this server from
 // the user's browser. It cannot fake the Host header, so only loopback hostnames are served.
@@ -139,23 +179,29 @@ export function createApp({ workspace, staticDir }: AppOptions): Hono {
       onError: (c) => respond(c, fail('too_large')),
     }),
     async (c) => {
-      // Requiring JSON forces browsers to preflight cross-origin writes, which are never allowed.
-      if (!c.req.header('content-type')?.startsWith(JSON_CONTENT_TYPE)) {
-        return respond(c, fail('invalid_request'));
-      }
-
-      let payload: unknown;
-      try {
-        payload = await c.req.json();
-      } catch {
-        return respond(c, fail('invalid_request'));
-      }
-
-      const body = saveBodySchema.safeParse(payload);
-      if (!body.success) return respond(c, fail('invalid_request'));
-      return respond(c, await writeFile(workspace, body.data));
+      const body = await readJsonBody(c, saveBodySchema);
+      if (!body) return respond(c, fail('invalid_request'));
+      return respond(c, await writeFile(workspace, body));
     },
   );
+
+  app.post(API_ROUTES.CREATE, limitEntryBody, async (c) => {
+    const body = await readJsonBody(c, createEntryBodySchema);
+    if (!body) return respond(c, fail('invalid_request'));
+    return respond(c, await createEntry(workspace, body.path, body.kind));
+  });
+
+  app.post(API_ROUTES.RENAME, limitEntryBody, async (c) => {
+    const body = await readJsonBody(c, renameEntryBodySchema);
+    if (!body) return respond(c, fail('invalid_request'));
+    return respond(c, await renameEntry(workspace, body));
+  });
+
+  app.post(API_ROUTES.DELETE, limitEntryBody, async (c) => {
+    const body = await readJsonBody(c, deleteEntryBodySchema);
+    if (!body) return respond(c, fail('invalid_request'));
+    return respond(c, await deleteEntry(workspace, body.path));
+  });
 
   app.get(API_ROUTES.EVENTS, (c) =>
     streamSSE(c, async (stream) => {

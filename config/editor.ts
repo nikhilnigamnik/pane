@@ -31,6 +31,13 @@ export const BRACKET_COLORIZATION: editor.BracketPairColorizationOptions = {
 };
 
 export const EDITOR_THEME_NAME = 'cursor-dark';
+export const MARKDOWN_LANGUAGE_ID = 'markdown';
+
+// Monaco's own pickers, opened by the go-to-line and go-to-symbol shortcuts.
+export const EDITOR_ACTIONS = {
+  GO_TO_LINE: 'editor.action.gotoLine',
+  GO_TO_SYMBOL: 'editor.action.quickOutline',
+} as const;
 // The built-in theme that supplies every color the Cursor theme does not set.
 export const EDITOR_BASE_THEME: editor.BuiltinTheme = 'vs-dark';
 
@@ -50,6 +57,8 @@ export const EDITOR_SYNTAX_RULES: EditorSyntaxRule[] = [
   { token: 'keyword.json', variable: '--cursor-blue' },
   { token: 'string', variable: '--cursor-success' },
   { token: 'string.key.json', variable: '--cursor-blue' },
+  // The base theme colors JSON values on its own, which would override the plain "string" rule.
+  { token: 'string.value.json', variable: '--cursor-success' },
   { token: 'regexp', variable: '--cursor-success' },
   { token: 'number', variable: '--cursor-blue' },
   { token: 'constant', variable: '--cursor-blue' },
@@ -94,6 +103,9 @@ export const EDITOR_COLORS: Record<string, string> = {
   'editor.wordHighlightStrongBackground': '--cursor-fg-10',
   'editor.findMatchBackground': '--cursor-accent-bg-strong',
   'editor.findMatchHighlightBackground': '--cursor-accent-bg',
+  // The lines of a symbol while it is picked in "go to symbol".
+  'editor.rangeHighlightBackground': '--cursor-fg-05',
+  'editorOverviewRuler.rangeHighlightForeground': '--cursor-fg-20',
   'editorWhitespace.foreground': '--cursor-fg-20',
   'editorIndentGuide.background1': '--cursor-fg-08',
   'editorIndentGuide.activeBackground1': '--cursor-fg-20',
@@ -123,6 +135,17 @@ export const EDITOR_COLORS: Record<string, string> = {
   'list.activeSelectionBackground': '--cursor-fg-10',
   'list.activeSelectionForeground': '--cursor-fg',
   'list.focusBackground': '--cursor-fg-08',
+  // The go-to-line and go-to-symbol pickers.
+  'quickInput.background': '--cursor-card-02',
+  'quickInput.foreground': '--cursor-fg',
+  'quickInputList.focusBackground': '--cursor-fg-10',
+  'quickInputList.focusForeground': '--cursor-fg',
+  'quickInputList.focusIconForeground': '--cursor-fg',
+  'list.highlightForeground': '--cursor-accent',
+  'list.focusHighlightForeground': '--cursor-accent',
+  'pickerGroup.foreground': '--cursor-text-sec',
+  'pickerGroup.border': '--cursor-border-02',
+  descriptionForeground: '--cursor-text-sec',
   'menu.background': '--cursor-card-02',
   'menu.foreground': '--cursor-fg',
   'menu.selectionBackground': '--cursor-fg-08',

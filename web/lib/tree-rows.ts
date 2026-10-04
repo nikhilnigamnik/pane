@@ -74,3 +74,15 @@ export function treeKeyAction(
       return null;
   }
 }
+
+// The entry at a path among the folders loaded so far, or null when it is not loaded.
+export function findEntry(
+  childrenByPath: Record<string, TreeEntry[]>,
+  path: string,
+): TreeEntry | null {
+  for (const entries of Object.values(childrenByPath)) {
+    const entry = entries.find((item) => item.path === path);
+    if (entry) return entry;
+  }
+  return null;
+}

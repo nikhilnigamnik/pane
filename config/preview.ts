@@ -16,5 +16,11 @@ export const IMAGE_MIME_TYPES: Record<string, string> = {
 export const SVG_EXTENSION = '.svg';
 export const SVG_MIME_TYPE = 'image/svg+xml';
 export const MARKDOWN_EXTENSIONS = ['.md', '.markdown'];
+export const JSON_EXTENSIONS = ['.json'];
+// Data files shown as a table, with the character that separates their cells.
+export const TABLE_DELIMITERS: Record<string, string> = {
+  '.csv': ',',
+  '.tsv': '\t',
+};
 
 export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;

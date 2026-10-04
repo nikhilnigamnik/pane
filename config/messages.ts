@@ -13,6 +13,8 @@ export const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   too_large: 'This file is too large to open.',
   binary: 'This looks like a binary file, so it cannot be edited as text.',
   not_an_image: 'Only image files can be shown this way.',
+  invalid_pattern: 'That is not a valid regular expression.',
+  already_exists: 'A file or folder with that name already exists.',
   unsupported_encoding: 'This file is not UTF-8 text, so it cannot be edited without damaging it.',
   conflict: 'This file changed on disk after you opened it.',
   io_error: 'The file could not be read or written.',

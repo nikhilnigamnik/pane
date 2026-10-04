@@ -1,8 +1,14 @@
-import { IMAGE_MIME_TYPES, MARKDOWN_EXTENSIONS, SVG_EXTENSION } from '@/config/preview';
+import {
+  IMAGE_MIME_TYPES,
+  JSON_EXTENSIONS,
+  MARKDOWN_EXTENSIONS,
+  SVG_EXTENSION,
+  TABLE_DELIMITERS,
+} from '@/config/preview';
 
 import { fileExtension } from './path';
 
-export type PreviewKind = 'markdown' | 'svg';
+export type PreviewKind = 'markdown' | 'svg' | 'table' | 'json';
 
 // Pictures open in a tab that only shows them. SVG is the exception: it is text, so it opens
 // in the editor and offers a preview.
@@ -14,5 +20,12 @@ export function isImagePath(path: string): boolean {
 export function previewKind(path: string): PreviewKind | null {
   const extension = fileExtension(path);
   if (extension === SVG_EXTENSION) return 'svg';
-  return MARKDOWN_EXTENSIONS.includes(extension) ? 'markdown' : null;
+  if (MARKDOWN_EXTENSIONS.includes(extension)) return 'markdown';
+  if (JSON_EXTENSIONS.includes(extension)) return 'json';
+  return Object.hasOwn(TABLE_DELIMITERS, extension) ? 'table' : null;
+}
+
+// The cell separator of a CSV or TSV file.
+export function tableDelimiter(path: string): string | null {
+  return TABLE_DELIMITERS[fileExtension(path)] ?? null;
 }
