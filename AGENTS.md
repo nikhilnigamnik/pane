@@ -318,3 +318,7 @@ This server can read and write files, so these hold for every change:
 - Moving files by drag and drop, undoing a delete, and resizing the side view.
 - Text files over 2 MB, images over 20 MB and other binary files are refused
   on purpose.
+- Radix ScrollArea puts an inline `position: relative` on its root, which
+  beats an `absolute` class. A ScrollArea that has to fill a positioned pane
+  goes inside an `absolute inset-0` wrapper with `size-full` on itself;
+  otherwise it grows to its content and never scrolls.

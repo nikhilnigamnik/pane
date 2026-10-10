@@ -14,6 +14,9 @@ const SCROLLBAR_CLASSES = 'flex touch-none p-0.5 select-none';
 const THUMB_CLASSES =
   'relative flex-1 rounded-full bg-theme-fg-20 transition-colors hover:bg-theme-text-tertiary';
 
+// Radix gives the root an inline "position: relative", so a positioning class such as
+// "absolute" on a ScrollArea has no effect. Position a wrapper and give the ScrollArea a size.
+//
 // A scroll container with a slim overlay scrollbar that only shows while hovering or
 // scrolling, instead of the browser's own bar.
 export function ScrollArea({ children, className, isHorizontal = false, ...props }: ScrollAreaProps) {

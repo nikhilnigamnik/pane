@@ -194,14 +194,16 @@ export function MarkdownPreview({ path, onOpenFile }: MarkdownPreviewProps) {
   const context = useMemo(() => ({ path, onOpenFile }), [path, onOpenFile]);
 
   return (
-    <ScrollArea className="absolute inset-0 bg-theme-product-editor">
-      <article className="mx-auto max-w-3xl px-8 py-8 text-sm text-theme-fg-02">
-        <MarkdownContext.Provider value={context}>
-          <Markdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
-            {text}
-          </Markdown>
-        </MarkdownContext.Provider>
-      </article>
-    </ScrollArea>
+    <div className="absolute inset-0 bg-theme-product-editor">
+      <ScrollArea className="size-full">
+        <article className="mx-auto max-w-3xl px-8 py-8 text-sm text-theme-fg-02">
+          <MarkdownContext.Provider value={context}>
+            <Markdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+              {text}
+            </Markdown>
+          </MarkdownContext.Provider>
+        </article>
+      </ScrollArea>
+    </div>
   );
 }
