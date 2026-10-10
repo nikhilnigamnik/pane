@@ -19,5 +19,5 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["bin", "server", "web", "config", "types", "vite.config.ts", "tsup.config.ts"]
+  "include": ["bin", "server", "web", "config", "types", "scripts", "vite.config.ts", "tsup.config.ts"]
 }

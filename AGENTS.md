@@ -16,6 +16,9 @@ Use `pnpm` only, never npm or yarn.
 | `pnpm test` | Vitest, run once |
 | `pnpm build` | Build the UI to `dist/web`, then bundle the CLI to `dist/cli.js` |
 | `pnpm start <path>` | Run the built CLI |
+| `pnpm compile` | Build the UI, then compile a standalone binary for this machine to `release/pane` (needs Bun 1.4.3 or newer) |
+| `pnpm compile --all` | The same for every release platform, packed as `release/pane-<os>-<arch>.tar.gz` plus `SHA256SUMS` |
+| `scripts/smoke-test.sh <binary>` | Start a compiled binary on a scratch folder and check the UI, API and file watching |
 
 The global `pane` command is a `pnpm link --global` of this folder and runs
 `dist/cli.js`. Source changes do not reach it until `pnpm build` runs again.
@@ -54,6 +57,9 @@ web/                 browser side (React)
   styles/            cursor-tokens.css (tokens) and index.css (Tailwind theme)
 config/              every constant, label, route and message
 types/               types shared by server and web
+scripts/             compile.ts (standalone binaries) and smoke-test.sh
+install.sh           the curl | sh installer
+.github/workflows/   release.yml builds, tests and publishes the binaries on a version tag
 ```
 
 `@/` is an alias for the project root (`@/config/server`, `@/web/lib/api`).
@@ -147,6 +153,31 @@ types/               types shared by server and web
   to reset). The width is kept in `localStorage` and applied through the
   `--sidebar-width` CSS variable on the sidebar, which keeps Tailwind classes
   the only styling and avoids re-rendering the tree while dragging.
+
+## Releases
+
+pane is shared as standalone binaries that need no Node, installed with
+`curl -fsSL https://raw.githubusercontent.com/nikhilnigamnik/pane/main/install.sh | sh`.
+
+- `scripts/compile.ts` runs `bun build --compile` on `bin/pane.ts` and embeds
+  `dist/web` with `--asset`. Bun places it at `web/` next to the code inside
+  the binary, the same layout as `dist/cli.js` and `dist/web`, so
+  `findStaticDir` in `server/cli.ts` finds it with no special case.
+- The platforms are `RELEASE_TARGETS` in `config/release.ts`. `install.sh`
+  maps `uname` to the same `<os>-<arch>` names, and the smoke-test matrix in
+  `.github/workflows/release.yml` has one runner per target. Change all three
+  together.
+- Pushing a tag `v<version>` runs the release workflow. It checks the tag
+  matches `package.json`, runs typecheck and tests, compiles every target on
+  macOS, installs each archive with `install.sh` and runs
+  `scripts/smoke-test.sh` on a runner of that platform, and only then
+  publishes the GitHub release.
+- `install.sh` downloads from `releases/latest/download` (or the
+  `PANE_VERSION` tag), checks the archive against `SHA256SUMS`, and installs
+  to `~/.local/bin` without sudo. `PANE_DOWNLOAD_BASE` points it at other
+  files, for example `file://$PWD/release` to test a local build.
+- The repository must be public, or `install.sh` and the release files
+  cannot be downloaded without signing in.
 
 ## Conventions
 
@@ -256,6 +287,11 @@ This server can read and write files, so these hold for every change:
   are resolved by `resolveRelativePath`, which refuses paths above the root.
 - SVG is only ever drawn inside an `<img>`, where browsers do not run its
   scripts. Do not inline SVG markup from a file into the page.
+- Compiled binaries are built with `--no-compile-autoload-dotenv` and
+  `--no-compile-autoload-bunfig`. Keep both: without them the binary loads
+  `.env` and `bunfig.toml` from whatever project it is opened in.
+- `install.sh` refuses an archive whose checksum does not match `SHA256SUMS`,
+  and never uses sudo.
 
 ## Gotchas
 
@@ -287,6 +323,10 @@ This server can read and write files, so these hold for every change:
   must stay after the one that focuses the editor when a preview closes.
 - The TypeScript worker starts on first use, so the first go-to-symbol in a
   session can take a moment to list anything.
+- Radix ScrollArea puts an inline `position: relative` on its root, which
+  beats an `absolute` class. A ScrollArea that has to fill a positioned pane
+  goes inside an `absolute inset-0` wrapper with `size-full` on itself;
+  otherwise it grows to its content and never scrolls.
 - `ScrollArea` passes extra props and its ref to the Radix root, which is what
   lets it be the trigger of the tree's context menu.
 - Adding or removing hooks in a custom hook breaks hot reload with a "change
@@ -299,6 +339,12 @@ This server can read and write files, so these hold for every change:
   the extension. Those two config files must not gain runtime `@/` imports
   (type-only imports are fine).
 - `tsup` runs with `clean: false` because Vite writes `dist/web` first.
+- `pnpm compile` uses the `bun` on PATH, and Homebrew's can be too old for
+  `--asset`; the script stops with a message if it is. Bun signs the macOS
+  binaries itself (ad hoc), and `curl` does not quarantine downloads, so
+  Gatekeeper lets them run.
+- `config/site.ts` imports `package.json` for `APP_VERSION`, which
+  `pane --version` prints. Bump the version there before tagging a release.
 - React StrictMode runs effects twice in dev. Effects must tolerate that.
 
 ## Verifying a change
@@ -318,7 +364,7 @@ This server can read and write files, so these hold for every change:
 - Moving files by drag and drop, undoing a delete, and resizing the side view.
 - Text files over 2 MB, images over 20 MB and other binary files are refused
   on purpose.
-- Radix ScrollArea puts an inline `position: relative` on its root, which
-  beats an `absolute` class. A ScrollArea that has to fill a positioned pane
-  goes inside an `absolute inset-0` wrapper with `size-full` on itself;
-  otherwise it grows to its content and never scrolls.
+- Release binaries for Windows and for musl Linux (Alpine). `install.sh`
+  stops with a message on both.
+- Telling users when a newer release exists. Running the installer again
+  updates.

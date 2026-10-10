@@ -12,6 +12,7 @@
     "dev:web": "vite",
     "build": "vite build && tsup",
     "start": "node dist/cli.js",
+    "compile": "vite build && bun scripts/compile.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
