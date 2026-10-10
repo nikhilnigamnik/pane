@@ -29,6 +29,7 @@ Usage: ${APP_NAME} [path] [options]
 Options:
   -p, --port     Port to listen on (default: ${DEFAULT_PORT})
       --no-open  Do not open the browser
+  -v, --version  Print the version
   -h, --help     Show this help`;
 
 export const CLI_MESSAGES = {

@@ -17,6 +17,7 @@ import {
   STATIC_DIR_NAME,
   STATIC_INDEX_FILE,
 } from '@/config/server';
+import { APP_VERSION } from '@/config/site';
 
 import { createApp } from './app';
 import { errorCode } from './result';
@@ -35,6 +36,7 @@ const ARG_OPTIONS = {
   'no-open': { type: 'boolean' },
   dev: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
+  version: { type: 'boolean', short: 'v' },
 } as const;
 
 async function resolveTarget(input: string): Promise<Target | null> {
@@ -103,6 +105,10 @@ export async function runCli(argv: string[]): Promise<number> {
   const { values, positionals } = parsed;
   if (values.help) {
     console.log(CLI_USAGE);
+    return 0;
+  }
+  if (values.version) {
+    console.log(APP_VERSION);
     return 0;
   }
 
